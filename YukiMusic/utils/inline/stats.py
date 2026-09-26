@@ -1,10 +1,25 @@
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from YukiMusic.button_styles import (
-    danger_button,
-    primary_button,
-    success_button,
-)
+
+def danger_button(text, callback_data):
+    return InlineKeyboardButton(
+        text=text,
+        callback_data=callback_data,
+    )
+
+
+def primary_button(text, callback_data):
+    return InlineKeyboardButton(
+        text=text,
+        callback_data=callback_data,
+    )
+
+
+def success_button(text, callback_data):
+    return InlineKeyboardButton(
+        text=text,
+        callback_data=callback_data,
+    )
 
 
 def stats_buttons(_, status):
