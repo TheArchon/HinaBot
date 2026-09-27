@@ -119,6 +119,35 @@ def _html_caption_to_blocks(caption_html):
     ]
 
 
+def _caption_without_requester(caption_html):
+    """Keep the Requested By label, but move the requester name into a Rich button."""
+    lines = caption_html.split("\n")
+    cleaned = []
+    for line in lines:
+        if "</b>" in line and re.search(r"(requested|ʀᴇǫᴜᴇsᴛᴇᴅ|ʙʏ)", line, re.IGNORECASE):
+            end = line.find("</b>") + len("</b>")
+            line = line[:end]
+        cleaned.append(line)
+    return "\n".join(cleaned)
+
+
+def _requester_button(chat_id, style):
+    """Create a Rich button that opens the current requester's Telegram profile."""
+    tracks = db.get(chat_id) or []
+    current = tracks[0] if tracks else {}
+    user_id = current.get("user_id")
+    user_name = str(current.get("by") or "User").strip()
+
+    if not user_id:
+        return None
+
+    return types.RichMessageButton(
+        text=user_name[:64],
+        style=style,
+        url=f"tg://user?id={user_id}",
+    )
+
+
 def _progress_line(played, dur):
     played_sec = time_to_seconds(played)
     duration_sec = time_to_seconds(dur)
@@ -226,7 +255,14 @@ def build_now_playing_blocks(
     _, photo, caption_html, chat_id, played=None, dur=None, playing=True
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
-    blocks += _html_caption_to_blocks(caption_html)
+    blocks += _html_caption_to_blocks(_caption_without_requester(caption_html))
+
+    # The requester is shown as a Rich Button using the same dynamic button
+    # styles as the Play controls. Tapping it opens the requester's profile.
+    requester = _requester_button(chat_id, random.choice(_BUTTON_STYLES))
+    if requester:
+        blocks.append(types.InputRichBlockButtons(buttons=[requester]))
+
     styles = _random_styles()
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
