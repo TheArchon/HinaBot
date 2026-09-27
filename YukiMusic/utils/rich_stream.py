@@ -56,6 +56,7 @@ def _richify_custom_emojis(value):
         parts.append(value[pos:])
     return parts[0] if len(parts) == 1 else parts
 
+
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
 
 
@@ -410,6 +411,8 @@ async def send_now_playing_rich(
 ):
     _ = await _lang(chat_id)
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
+    if db.get(chat_id):
+        db[chat_id][0]["np_blocks"] = blocks
     msg = await _deliver(client, target_chat_id, blocks, replace)
     if db.get(chat_id):
         db[chat_id][0]["np_photo"] = photo
@@ -461,13 +464,38 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
     info = db.get(chat_id)
     if not info:
         return None
-    photo = info[0].get("np_photo")
-    caption_html = info[0].get("np_caption")
-    if not photo or not caption_html:
+
+    blocks = info[0].get("np_blocks")
+    if not blocks:
         return None
-    _ = await _lang(chat_id)
-    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
-    return await _edit_rich(mystic, blocks)
+
+    progress_block = _progress_row(
+        played,
+        dur,
+        enums.ButtonStyle.DEFAULT,
+    )
+
+    new_blocks = []
+    replaced = False
+
+    for block in blocks:
+        if isinstance(block, types.InputRichBlockButtons):
+            buttons = getattr(block, "buttons", None) or []
+            if any(
+                getattr(button, "callback_data", None) == "GetTimer"
+                for button in buttons
+            ):
+                new_blocks.append(progress_block)
+                replaced = True
+                continue
+
+        new_blocks.append(block)
+
+    if not replaced:
+        # Keep the existing card intact if no progress row exists yet.
+        return await _edit_rich(mystic, new_blocks)
+
+    return await _edit_rich(mystic, new_blocks)
 
 
 async def set_now_playing_state(chat_id, playing):
