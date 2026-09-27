@@ -491,9 +491,31 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
 
         new_blocks.append(block)
 
+    # The initial play message does not contain a progress row.
+    # Insert it immediately before the control buttons, while preserving
+    # every original Rich block (including Premium Custom Emojis).
     if not replaced:
-        # Keep the existing card intact if no progress row exists yet.
-        return await _edit_rich(mystic, new_blocks)
+        insert_at = len(new_blocks)
+        for index, block in enumerate(new_blocks):
+            if isinstance(block, types.InputRichBlockButtons):
+                buttons = getattr(block, "buttons", None) or []
+                callbacks = [
+                    getattr(button, "callback_data", None)
+                    for button in buttons
+                ]
+                if any(
+                    isinstance(callback, str)
+                    and callback.startswith("ADMIN ")
+                    for callback in callbacks
+                ):
+                    insert_at = index
+                    break
+
+        new_blocks.insert(insert_at, progress_block)
+
+    # Save the updated block structure so the next 7-second tick edits
+    # the same progress row instead of rebuilding the whole Rich card.
+    info[0]["np_blocks"] = new_blocks
 
     return await _edit_rich(mystic, new_blocks)
 
