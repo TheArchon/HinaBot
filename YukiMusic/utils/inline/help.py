@@ -1,4 +1,5 @@
 from typing import Union
+import re
 
 from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -154,38 +155,53 @@ def private_help_panel(_):
     return buttons
 
 
-def format_help_topic(text: str) -> str:
-    """Format Help Center content like the reference UI.
+def format_help_topic(
+    text: str,
+    emoji_id: str = "",
+    fallback_emoji: str = "✨",
+) -> str:
+    """Format a Help page like the reference video.
 
-    - Existing heading markup is kept.
-    - Lines beginning with / are rendered as Telegram blockquotes.
-    - Other plain text is italicized.
-    - Blank lines are preserved.
+    - The duplicated section heading from the source text is removed.
+    - Every command line becomes a Telegram blockquote.
+    - Every quoted command starts with the page's Premium Custom Emoji.
+    - Explanatory/non-command text is moved below all commands and italicized.
     """
-    lines = text.strip().splitlines()
-    output = []
+    command_lines = []
+    normal_lines = []
 
-    for raw in lines:
+    for raw in text.strip().splitlines():
         line = raw.strip()
-
         if not line:
-            output.append("")
             continue
 
-        # Keep existing HTML headings/labels intact.
-        if line.startswith("<b>") or line.startswith("<u>"):
-            output.append(line)
+        # Remove the original section heading; the page already has its own
+        # title above this body.
+        plain = re.sub(r"<[^>]+>", "", line).strip()
+        if plain.endswith(":") and "/" not in plain:
             continue
 
-        # Commands get the quote treatment.
-        if line.startswith("/"):
-            output.append(f"<blockquote>{line}</blockquote>")
-            continue
-
-        # Other explanatory text gets italic formatting.
-        if line.startswith("<"):
-            output.append(f"<i>{line}</i>")
+        # Commands start with "/" after optional HTML markup.
+        command_candidate = re.sub(r"^<[^>]+>", "", line).lstrip()
+        if command_candidate.startswith("/"):
+            command_lines.append(line)
         else:
-            output.append(f"<i>{line}</i>")
+            normal_lines.append(line)
 
-    return "\n".join(output)
+    command_emoji = (
+        f'<tg-emoji emoji-id="{emoji_id}">{fallback_emoji}</tg-emoji>'
+        if emoji_id
+        else fallback_emoji
+    )
+
+    rendered = [
+        f"<blockquote>{command_emoji} {line}</blockquote>"
+        for line in command_lines
+    ]
+
+    if normal_lines:
+        if rendered:
+            rendered.append("")
+        rendered.extend(f"<i>{line}</i>" for line in normal_lines)
+
+    return "\n\n".join(rendered)
