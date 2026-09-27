@@ -358,6 +358,9 @@ async def send_now_playing_rich(
     if db.get(chat_id):
         db[chat_id][0]["np_photo"] = photo
         db[chat_id][0]["np_caption"] = caption_html
+        # Keep the original Rich blocks. Progress/state updates must modify
+        # only the required button row instead of rebuilding the whole card.
+        db[chat_id][0]["np_blocks"] = list(blocks)
     return msg
 
 
@@ -402,72 +405,89 @@ async def send_queue_rich(
 
 
 async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True):
-    # Preserve the already-built Rich blocks (including premium custom emojis)
-    # and replace only the progress row. Rebuilding the whole card can cause
-    # Telegram/Pyrogram to re-serialize custom emoji entities.
-    if mystic is None:
+    info = db.get(chat_id)
+    if not info or not mystic:
         return None
 
-    try:
-        rich = getattr(mystic, "rich_message", None)
-        blocks = list(getattr(rich, "blocks", None) or [])
-        if not blocks:
-            raise ValueError("Rich message blocks unavailable")
+    # IMPORTANT: use the exact blocks that were used for the original send.
+    # Rebuilding the card re-parses custom emojis and can make Premium emojis
+    # disappear after Telegram re-serialization.
+    cached = info[0].get("np_blocks")
+    if not cached:
+        return None
 
-        progress_index = None
-        progress_style = enums.ButtonStyle.PRIMARY
-        for i, block in enumerate(blocks):
-            buttons = getattr(block, "buttons", None)
-            if not buttons:
-                continue
-            for button in buttons:
-                if getattr(button, "callback_data", None) == "GetTimer":
-                    progress_index = i
-                    progress_style = getattr(button, "style", progress_style)
-                    break
-            if progress_index is not None:
+    blocks = list(cached)
+    progress_index = None
+    progress_style = enums.ButtonStyle.PRIMARY
+
+    for i, block in enumerate(blocks):
+        buttons = getattr(block, "buttons", None)
+        if not buttons:
+            continue
+        for button in buttons:
+            if getattr(button, "callback_data", None) == "GetTimer":
+                progress_index = i
+                progress_style = getattr(button, "style", progress_style)
                 break
+        if progress_index is not None:
+            break
 
-        progress = _progress_row(played, dur, progress_style)
-        if progress_index is None:
-            # No existing progress row: insert it immediately before controls.
-            insert_at = max(len(blocks) - 2, 0)
-            blocks.insert(insert_at, progress)
-        else:
-            blocks[progress_index] = progress
+    new_progress = _progress_row(played, dur, progress_style)
 
-        return await _edit_rich(mystic, blocks)
-    except Exception:
-        # Compatibility fallback for Pyrogram versions that don't expose the
-        # current Rich blocks on the message object.
-        info = db.get(chat_id)
-        if not info:
-            return None
-        photo = info[0].get("np_photo")
-        caption_html = info[0].get("np_caption")
-        if not photo or not caption_html:
-            return None
-        _ = await _lang(chat_id)
-        blocks = build_now_playing_blocks(
-            _, photo, caption_html, chat_id, played, dur, playing
-        )
-        return await _edit_rich(mystic, blocks)
+    if progress_index is None:
+        # Insert immediately before the two control rows.
+        insert_at = max(len(blocks) - 2, 0)
+        blocks.insert(insert_at, new_progress)
+    else:
+        blocks[progress_index] = new_progress
+
+    info[0]["np_blocks"] = blocks
+    return await _edit_rich(mystic, blocks)
 
 
 async def set_now_playing_state(chat_id, playing):
     info = db.get(chat_id)
     if not info:
         return None
+
     mystic = info[0].get("mystic")
-    photo = info[0].get("np_photo")
-    caption_html = info[0].get("np_caption")
-    if not mystic or not photo or not caption_html:
+    cached = info[0].get("np_blocks")
+    if not mystic or not cached:
         return None
-    played = seconds_to_min(info[0].get("played", 0)) or None
-    dur = info[0].get("dur")
-    _ = await _lang(chat_id)
-    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
+
+    blocks = list(cached)
+
+    # Only replace the pause/resume button. Everything else — especially
+    # Premium custom emoji blocks — remains exactly as originally sent.
+    target_callback = f"ADMIN Resume|{chat_id}" if playing else f"ADMIN Pause|{chat_id}"
+    replacement_callback = f"ADMIN Pause|{chat_id}" if playing else f"ADMIN Resume|{chat_id}"
+
     try:
-        return await _edit_rich(mystic, blocks)
+        _ = await _lang(chat_id)
+
+        for block in blocks:
+            buttons = getattr(block, "buttons", None)
+            if not buttons:
+                continue
+
+            for index, button in enumerate(buttons):
+                callback = getattr(button, "callback_data", None)
+                if callback != target_callback:
+                    continue
+
+                style = getattr(button, "style", enums.ButtonStyle.PRIMARY)
+                text_value = _["RICH_BTN_PAUSE"] if playing else _["RICH_BTN_RESUME"]
+
+                buttons[index] = types.RichMessageButton(
+                    text=text_value,
+                    style=style,
+                    callback_data=replacement_callback,
+                )
+                info[0]["np_blocks"] = blocks
+                return await _edit_rich(mystic, blocks)
+
+        # No matching toggle was found; leave the existing Rich card untouched.
+        return None
     except Exception:
         return None
+
