@@ -4,6 +4,7 @@ import re
 
 from pyrogram import enums, errors, types
 
+from YukiMusic import yuki
 from YukiMusic.misc import db
 from YukiMusic.utils.database import get_lang
 from YukiMusic.utils.formatters import seconds_to_min, time_to_seconds
@@ -480,45 +481,53 @@ async def send_queue_rich(
 
 
 async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True):
+    """
+    Update only the progress state without using editMessageText.
+
+    Telegram Rich Messages are edited as a complete rich_message.  Re-editing
+    the complete Rich Message can cause custom-emoji RichText nodes to fall
+    back to their alternative Unicode emoji.  To keep Premium Custom Emojis
+    intact, send the updated Rich Message as a fresh message and then remove
+    the previous one.
+
+    The DB mystic reference is replaced with the new message so the next
+    7-second tick continues from the new message.
+    """
     info = db.get(chat_id)
-    if not info:
+    if not info or not mystic:
         return None
 
-    # Reuse the exact Rich blocks created for the original message.
-    # This is the important part: the Premium Custom Emoji objects are never
-    # reconstructed from normal emoji text during a progress edit.
-    blocks = info[0].get("np_blocks")
-    if not blocks:
-        blocks = _pending_np_blocks.get(chat_id)
-
-    if not blocks:
+    photo = info[0].get("np_photo")
+    caption_html = info[0].get("np_caption")
+    if not photo or not caption_html:
         return None
 
-    progress_style = enums.ButtonStyle.DEFAULT
+    _ = await _lang(chat_id)
 
-    # The progress button originally uses styles[4], which is also used by
-    # the song-title Rich button. Reuse that style when it is available.
-    for block in blocks:
-        if isinstance(block, types.InputRichBlockButtons):
-            for button in (getattr(block, "buttons", None) or []):
-                if getattr(button, "url", None):
-                    progress_style = getattr(
-                        button, "style", enums.ButtonStyle.DEFAULT
-                    )
-                    break
-        if progress_style != enums.ButtonStyle.DEFAULT:
-            break
+    # Start from the cached original blocks when available. This preserves
+    # the exact RichTextCustomEmoji objects created for the initial message.
+    cached = info[0].get("np_blocks")
+    if cached:
+        blocks = list(cached)
+    else:
+        # Fallback only for a startup race where the initial blocks were not
+        # cached yet. The normal path always uses the cached Rich blocks.
+        blocks = build_now_playing_blocks(
+            _, photo, caption_html, chat_id, None, None, playing
+        )
 
-    progress_block = _progress_row(played, dur, progress_style)
+    progress_block = _progress_row(
+        played,
+        dur,
+        enums.ButtonStyle.DEFAULT,
+    )
 
-    new_blocks = []
     replaced = False
+    new_blocks = []
 
     for block in blocks:
         if isinstance(block, types.InputRichBlockButtons):
             buttons = getattr(block, "buttons", None) or []
-
-            # Existing progress row: replace ONLY this row.
             if any(
                 getattr(button, "callback_data", None) == "GetTimer"
                 for button in buttons
@@ -526,54 +535,181 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
                 new_blocks.append(progress_block)
                 replaced = True
                 continue
-
         new_blocks.append(block)
 
     if not replaced:
-        # First progress tick: the initial card has no progress row.
-        # Put the row directly before the first ADMIN control row.
+        # Insert progress immediately before the first ADMIN control row.
         insert_at = len(new_blocks)
-
         for index, block in enumerate(new_blocks):
-            if not isinstance(block, types.InputRichBlockButtons):
-                continue
-
-            buttons = getattr(block, "buttons", None) or []
-            callbacks = [
-                getattr(button, "callback_data", None)
-                for button in buttons
-            ]
-
-            if any(
-                isinstance(callback, str) and callback.startswith("ADMIN ")
-                for callback in callbacks
-            ):
-                insert_at = index
-                break
+            if isinstance(block, types.InputRichBlockButtons):
+                buttons = getattr(block, "buttons", None) or []
+                callbacks = [
+                    getattr(button, "callback_data", None)
+                    for button in buttons
+                ]
+                if any(
+                    isinstance(callback, str)
+                    and callback.startswith("ADMIN ")
+                    for callback in callbacks
+                ):
+                    insert_at = index
+                    break
 
         new_blocks.insert(insert_at, progress_block)
 
-    # Cache the block list for the next 7-second update.
-    info[0]["np_blocks"] = list(new_blocks)
-    _pending_np_blocks[chat_id] = list(new_blocks)
+    rich = types.InputRichMessage(blocks=new_blocks)
 
-    return await _edit_rich(mystic, new_blocks)
+    try:
+        # IMPORTANT: do not edit the old Rich Message. Sending a fresh Rich
+        # Message makes Telegram process the RichTextCustomEmoji nodes again
+        # as custom emoji instead of going through the problematic edit path.
+        new_message = await yuki.send_rich_message(
+            chat_id,
+            rich_message=rich,
+        )
+    except _FORBIDDEN:
+        # Same fallback behavior as the existing delivery code.
+        plain = _strip_photo(new_blocks)
+        if len(plain) == len(new_blocks):
+            raise
+        new_message = await yuki.send_rich_message(
+            chat_id,
+            rich_message=types.InputRichMessage(blocks=plain),
+        )
 
+    # Make the newly sent message the active progress target BEFORE deleting
+    # the old one, so the next timer tick always has a valid message object.
+    info = db.get(chat_id)
+    if info:
+        info[0]["mystic"] = new_message
+        info[0]["np_blocks"] = new_blocks
+        info[0]["np_photo"] = photo
+        info[0]["np_caption"] = caption_html
+
+    try:
+        await mystic.delete()
+    except Exception:
+        pass
+
+    return new_message
 
 async def set_now_playing_state(chat_id, playing):
     info = db.get(chat_id)
     if not info:
         return None
+
     mystic = info[0].get("mystic")
     photo = info[0].get("np_photo")
     caption_html = info[0].get("np_caption")
+
     if not mystic or not photo or not caption_html:
         return None
+
     played = seconds_to_min(info[0].get("played", 0)) or None
     dur = info[0].get("dur")
     _ = await _lang(chat_id)
-    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
+
+    cached = info[0].get("np_blocks")
+    if cached:
+        blocks = list(cached)
+    else:
+        blocks = build_now_playing_blocks(
+            _, photo, caption_html, chat_id, played, dur, playing
+        )
+
+    # Update only the pause/resume control row while preserving every other
+    # RichTextCustomEmoji node from the original message.
+    new_blocks = []
+    for block in blocks:
+        if isinstance(block, types.InputRichBlockButtons):
+            buttons = getattr(block, "buttons", None) or []
+            if any(
+                isinstance(getattr(button, "callback_data", None), str)
+                and getattr(button, "callback_data", "").startswith("ADMIN ")
+                for button in buttons
+            ):
+                # Keep replay/skip/close rows as-is; only replace the row
+                # containing the Pause/Resume callback.
+                if any(
+                    getattr(button, "callback_data", None)
+                    in (
+                        f"ADMIN Pause|{chat_id}",
+                        f"ADMIN Resume|{chat_id}",
+                    )
+                    for button in buttons
+                ):
+                    styles = [
+                        getattr(button, "style", enums.ButtonStyle.DEFAULT)
+                        for button in buttons
+                    ]
+                    replay_style = styles[0] if styles else enums.ButtonStyle.DEFAULT
+                    toggle_style = styles[1] if len(styles) > 1 else enums.ButtonStyle.DEFAULT
+                    skip_style = styles[2] if len(styles) > 2 else enums.ButtonStyle.DEFAULT
+
+                    toggle = types.RichMessageButton(
+                        text=(
+                            _["RICH_BTN_PAUSE"]
+                            if playing
+                            else _["RICH_BTN_RESUME"]
+                        ),
+                        style=toggle_style,
+                        callback_data=(
+                            f"ADMIN Pause|{chat_id}"
+                            if playing
+                            else f"ADMIN Resume|{chat_id}"
+                        ),
+                    )
+
+                    new_blocks.append(
+                        types.InputRichBlockButtons(
+                            buttons=[
+                                types.RichMessageButton(
+                                    text=_["RICH_BTN_REPLAY"],
+                                    style=replay_style,
+                                    callback_data=f"ADMIN Replay|{chat_id}",
+                                ),
+                                toggle,
+                                types.RichMessageButton(
+                                    text=_["RICH_BTN_SKIP"],
+                                    style=skip_style,
+                                    callback_data=f"ADMIN Skip|{chat_id}",
+                                ),
+                            ]
+                        )
+                    )
+                    continue
+
+        new_blocks.append(block)
+
+    rich = types.InputRichMessage(blocks=new_blocks)
+
     try:
-        return await _edit_rich(mystic, blocks)
+        new_message = await yuki.send_rich_message(
+            chat_id,
+            rich_message=rich,
+        )
+    except _FORBIDDEN:
+        plain = _strip_photo(new_blocks)
+        if len(plain) == len(new_blocks):
+            return None
+        new_message = await yuki.send_rich_message(
+            chat_id,
+            rich_message=types.InputRichMessage(blocks=plain),
+        )
     except Exception:
         return None
+
+    info = db.get(chat_id)
+    if info:
+        info[0]["mystic"] = new_message
+        info[0]["np_blocks"] = new_blocks
+        info[0]["np_photo"] = photo
+        info[0]["np_caption"] = caption_html
+
+    try:
+        await mystic.delete()
+    except Exception:
+        pass
+
+    return new_message
+
