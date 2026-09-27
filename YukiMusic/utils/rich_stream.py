@@ -119,34 +119,44 @@ def _html_caption_to_blocks(caption_html):
     ]
 
 
-def _caption_without_requester(caption_html):
-    """Keep the Requested By label, but move the requester name into a Rich button."""
-    lines = caption_html.split("\n")
-    cleaned = []
+
+def _caption_blocks_with_requester_button(caption_html, chat_id, style):
+    """Build caption blocks and place the requester Rich button immediately after Requested By."""
+    lines = _balance_lines(caption_html)
+    blocks = []
+    requester_inserted = False
+    requester = _requester_button(chat_id, style)
+
     for line in lines:
-        if "</b>" in line and re.search(r"(requested|ʀᴇǫᴜᴇsᴛᴇᴅ|ʙʏ)", line, re.IGNORECASE):
-            end = line.find("</b>") + len("</b>")
-            line = line[:end]
-        cleaned.append(line)
-    return "\n".join(cleaned)
+        blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
+        if (
+            requester
+            and not requester_inserted
+            and re.search(r"requested\s*by|ʀᴇǫᴜᴇsᴛᴇᴅ\s*ʙʏ", line, re.IGNORECASE)
+        ):
+            blocks.append(types.InputRichBlockButtons(buttons=[requester]))
+            requester_inserted = True
+
+    # If the language/template did not contain a detectable Requested By line,
+    # keep the button visible without changing the rest of the card.
+    if requester and not requester_inserted:
+        blocks.append(types.InputRichBlockButtons(buttons=[requester]))
+    return blocks
 
 
 def _requester_button(chat_id, style):
-    """Create a Rich button that opens the current requester's Telegram profile."""
+    """Create a Rich button for the requester using their Telegram user ID."""
     tracks = db.get(chat_id) or []
     current = tracks[0] if tracks else {}
     user_id = current.get("user_id")
-    user_name = str(current.get("by") or "User").strip()
-
+    user_name = str(current.get("by") or "User").strip() or "User"
     if not user_id:
         return None
-
     return types.RichMessageButton(
         text=user_name[:64],
         style=style,
         url=f"tg://user?id={user_id}",
     )
-
 
 def _progress_line(played, dur):
     played_sec = time_to_seconds(played)
@@ -255,15 +265,12 @@ def build_now_playing_blocks(
     _, photo, caption_html, chat_id, played=None, dur=None, playing=True
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
-    blocks += _html_caption_to_blocks(_caption_without_requester(caption_html))
-
-    # The requester is shown as a Rich Button using the same dynamic button
-    # styles as the Play controls. Tapping it opens the requester's profile.
-    requester = _requester_button(chat_id, random.choice(_BUTTON_STYLES))
-    if requester:
-        blocks.append(types.InputRichBlockButtons(buttons=[requester]))
-
     styles = _random_styles()
+
+    # Put the requester button directly after the Requested By line, not above
+    # the progress bar or below the "Your Track Is Now Playing" text.
+    blocks += _caption_blocks_with_requester_button(caption_html, chat_id, styles[0])
+
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
     blocks += _control_rows(_, chat_id, playing, styles[:4])
