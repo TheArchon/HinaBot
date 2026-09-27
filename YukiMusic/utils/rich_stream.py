@@ -21,6 +21,7 @@ _CUSTOM_EMOJI = {
     "👤": ("5258362837411045098", "👤"),
     "🎶": ("6100424015111787987", "🎵"),
     "🔊": ("6039381989985882045", "📢"),
+    "📌": ("6100546468924364734", "📌"),
 }
 _CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJI, key=len, reverse=True)))
 
@@ -113,10 +114,27 @@ def _balance_lines(caption_html):
 
 
 def _html_caption_to_blocks(caption_html):
-    return [
-        types.InputRichBlockParagraph(text=_parse_inline(line))
-        for line in _balance_lines(caption_html)
-    ]
+    lines = _balance_lines(caption_html)
+    blocks = []
+    center_next_link = False
+
+    for line in lines:
+        if center_next_link and line.strip():
+            blocks.append(
+                types.InputRichBlockPullQuotation(text=_parse_inline(line))
+            )
+            center_next_link = False
+            continue
+
+        if "Nᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line or "𝐍ᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line:
+            blocks.append(
+                types.InputRichBlockPullQuotation(text=_parse_inline(line))
+            )
+            center_next_link = True
+        else:
+            blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
+
+    return blocks
 
 
 def _progress_line(played, dur):
@@ -222,48 +240,11 @@ def _control_rows(_, chat_id, playing, styles):
     ]
 
 
-def _extract_requester_button(caption_html):
-    """Extract the Telegram user mention used by the Requested By field."""
-    pattern = re.compile(
-        r'<a\s+href=["\']?tg://user\?id=(\d+)["\']?[^>]*>(.*?)</a>',
-        re.IGNORECASE,
-    )
-    match = pattern.search(caption_html or "")
-    if not match:
-        return caption_html, None, None
-
-    user_id = match.group(1)
-    name = re.sub(r'<[^>]+>', '', match.group(2)).strip()
-    clean_caption = caption_html[: match.start()] + caption_html[match.end() :]
-    return clean_caption, user_id, name
-
-
-def _requester_button(user_id, name):
-    return types.InputRichBlockButtons(
-        buttons=[
-            types.RichMessageButton(
-                text=name or "User",
-                style=random.choice(_BUTTON_STYLES),
-                url=f"tg://user?id={user_id}",
-            )
-        ]
-    )
-
-
 def build_now_playing_blocks(
     _, photo, caption_html, chat_id, played=None, dur=None, playing=True
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
-
-    # Keep the "Requested By" label in the caption, but move the actual
-    # requester mention into its own full-width Rich Button directly below it.
-    clean_caption, requester_id, requester_name = _extract_requester_button(
-        caption_html
-    )
-    blocks += _html_caption_to_blocks(clean_caption)
-    if requester_id:
-        blocks.append(_requester_button(requester_id, requester_name))
-
+    blocks += _html_caption_to_blocks(caption_html)
     styles = _random_styles()
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
