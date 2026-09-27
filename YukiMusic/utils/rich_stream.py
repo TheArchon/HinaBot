@@ -21,6 +21,7 @@ _CUSTOM_EMOJI = {
     "👤": ("5258362837411045098", "👤"),
     "🎶": ("6100424015111787987", "🎵"),
     "🔊": ("6039381989985882045", "📢"),
+    "📌": ("6100546468924364734", "📌"),
 }
 _CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJI, key=len, reverse=True)))
 
@@ -112,11 +113,61 @@ def _balance_lines(caption_html):
     return lines
 
 
-def _html_caption_to_blocks(caption_html):
-    return [
-        types.InputRichBlockParagraph(text=_parse_inline(line))
-        for line in _balance_lines(caption_html)
-    ]
+def _song_rich_button(line, style):
+    """Turn the first linked song-title line into a coloured Rich Button."""
+    match = re.fullmatch(
+        r"\s*<a\s+href=([^>]+)>(.*?)</a>\s*",
+        line,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+
+    url = match.group(1).strip("\"'")
+    title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    if not url or not title:
+        return None
+
+    button_text = _richify_custom_emojis(f"  🎵 {title} 🎵  ")
+    return types.InputRichBlockButtons(
+        buttons=[
+            types.RichMessageButton(
+                text=button_text,
+                style=style,
+                url=url,
+            )
+        ],
+        align="center",
+    )
+
+
+def _html_caption_to_blocks(caption_html, song_button_style=None):
+    lines = _balance_lines(caption_html)
+    blocks = []
+    center_next_song = False
+
+    if song_button_style is None:
+        song_button_style = random.choice(_BUTTON_STYLES)
+
+    for line in lines:
+        if center_next_song and line.strip():
+            song_button = _song_rich_button(line, song_button_style)
+            if song_button is not None:
+                blocks.append(song_button)
+            else:
+                blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
+            center_next_song = False
+            continue
+
+        if "Nᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line or "𝐍ᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line:
+            blocks.append(
+                types.InputRichBlockPullQuotation(text=_parse_inline(line))
+            )
+            center_next_song = True
+        else:
+            blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
+
+    return blocks
 
 
 def _progress_line(played, dur):
@@ -222,49 +273,12 @@ def _control_rows(_, chat_id, playing, styles):
     ]
 
 
-def _extract_requester_button(caption_html):
-    """Extract the Telegram user mention used by the Requested By field."""
-    pattern = re.compile(
-        r'<a\s+href=["\']?tg://user\?id=(\d+)["\']?[^>]*>(.*?)</a>',
-        re.IGNORECASE,
-    )
-    match = pattern.search(caption_html or "")
-    if not match:
-        return caption_html, None, None
-
-    user_id = match.group(1)
-    name = re.sub(r'<[^>]+>', '', match.group(2)).strip()
-    clean_caption = caption_html[: match.start()] + caption_html[match.end() :]
-    return clean_caption, user_id, name
-
-
-def _requester_button(user_id, name):
-    return types.InputRichBlockButtons(
-        buttons=[
-            types.RichMessageButton(
-                text=name or "User",
-                style=random.choice(_BUTTON_STYLES),
-                url=f"tg://user?id={user_id}",
-            )
-        ]
-    )
-
-
 def build_now_playing_blocks(
     _, photo, caption_html, chat_id, played=None, dur=None, playing=True
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
-
-    # Keep the "Requested By" label in the caption, but move the actual
-    # requester mention into its own full-width Rich Button directly below it.
-    clean_caption, requester_id, requester_name = _extract_requester_button(
-        caption_html
-    )
-    blocks += _html_caption_to_blocks(clean_caption)
-    if requester_id:
-        blocks.append(_requester_button(requester_id, requester_name))
-
     styles = _random_styles()
+    blocks += _html_caption_to_blocks(caption_html, song_button_style=styles[4])
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
     blocks += _control_rows(_, chat_id, playing, styles[:4])
@@ -358,9 +372,6 @@ async def send_now_playing_rich(
     if db.get(chat_id):
         db[chat_id][0]["np_photo"] = photo
         db[chat_id][0]["np_caption"] = caption_html
-        # Keep the original Rich blocks. Progress/state updates must modify
-        # only the required button row instead of rebuilding the whole card.
-        db[chat_id][0]["np_blocks"] = list(blocks)
     return msg
 
 
@@ -406,42 +417,14 @@ async def send_queue_rich(
 
 async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True):
     info = db.get(chat_id)
-    if not info or not mystic:
+    if not info:
         return None
-
-    # IMPORTANT: use the exact blocks that were used for the original send.
-    # Rebuilding the card re-parses custom emojis and can make Premium emojis
-    # disappear after Telegram re-serialization.
-    cached = info[0].get("np_blocks")
-    if not cached:
+    photo = info[0].get("np_photo")
+    caption_html = info[0].get("np_caption")
+    if not photo or not caption_html:
         return None
-
-    blocks = list(cached)
-    progress_index = None
-    progress_style = enums.ButtonStyle.PRIMARY
-
-    for i, block in enumerate(blocks):
-        buttons = getattr(block, "buttons", None)
-        if not buttons:
-            continue
-        for button in buttons:
-            if getattr(button, "callback_data", None) == "GetTimer":
-                progress_index = i
-                progress_style = getattr(button, "style", progress_style)
-                break
-        if progress_index is not None:
-            break
-
-    new_progress = _progress_row(played, dur, progress_style)
-
-    if progress_index is None:
-        # Insert immediately before the two control rows.
-        insert_at = max(len(blocks) - 2, 0)
-        blocks.insert(insert_at, new_progress)
-    else:
-        blocks[progress_index] = new_progress
-
-    info[0]["np_blocks"] = blocks
+    _ = await _lang(chat_id)
+    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
     return await _edit_rich(mystic, blocks)
 
 
@@ -449,45 +432,16 @@ async def set_now_playing_state(chat_id, playing):
     info = db.get(chat_id)
     if not info:
         return None
-
     mystic = info[0].get("mystic")
-    cached = info[0].get("np_blocks")
-    if not mystic or not cached:
+    photo = info[0].get("np_photo")
+    caption_html = info[0].get("np_caption")
+    if not mystic or not photo or not caption_html:
         return None
-
-    blocks = list(cached)
-
-    # Only replace the pause/resume button. Everything else — especially
-    # Premium custom emoji blocks — remains exactly as originally sent.
-    target_callback = f"ADMIN Resume|{chat_id}" if playing else f"ADMIN Pause|{chat_id}"
-    replacement_callback = f"ADMIN Pause|{chat_id}" if playing else f"ADMIN Resume|{chat_id}"
-
+    played = seconds_to_min(info[0].get("played", 0)) or None
+    dur = info[0].get("dur")
+    _ = await _lang(chat_id)
+    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
     try:
-        _ = await _lang(chat_id)
-
-        for block in blocks:
-            buttons = getattr(block, "buttons", None)
-            if not buttons:
-                continue
-
-            for index, button in enumerate(buttons):
-                callback = getattr(button, "callback_data", None)
-                if callback != target_callback:
-                    continue
-
-                style = getattr(button, "style", enums.ButtonStyle.PRIMARY)
-                text_value = _["RICH_BTN_PAUSE"] if playing else _["RICH_BTN_RESUME"]
-
-                buttons[index] = types.RichMessageButton(
-                    text=text_value,
-                    style=style,
-                    callback_data=replacement_callback,
-                )
-                info[0]["np_blocks"] = blocks
-                return await _edit_rich(mystic, blocks)
-
-        # No matching toggle was found; leave the existing Rich card untouched.
-        return None
+        return await _edit_rich(mystic, blocks)
     except Exception:
         return None
-
