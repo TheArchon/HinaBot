@@ -63,10 +63,13 @@ def _custom_emoji(topic):
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
 
+HELP_CENTER_EMOJI = '<tg-emoji emoji-id="5827954206136340308">💡</tg-emoji>'
+
+
 def _page_text(topic, page):
     icon = _custom_emoji(topic)
     return (
-        f"<b>{icon} Hᴇʟᴘ Cᴇɴᴛᴇʀ {page}/{len(HELP_PAGES)}</b>\n\n"
+        f"<b>{HELP_CENTER_EMOJI} Hᴇʟᴘ Cᴇɴᴛᴇʀ {page}/{len(HELP_PAGES)}</b>\n\n"
         f"<b>{icon} {HELP_TITLES[topic]}</b>\n\n{HELP_TOPICS[topic]}"
     )
 
