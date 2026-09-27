@@ -128,7 +128,7 @@ def _song_rich_button(line, style):
     if not url or not title:
         return None
 
-    button_text = _richify_custom_emojis(f"  🎵 {title}  ")
+    button_text = _richify_custom_emojis(f"  🎵 {title} 🎵  ")
     return types.InputRichBlockButtons(
         buttons=[
             types.RichMessageButton(
