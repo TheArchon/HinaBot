@@ -49,7 +49,7 @@ HELP_TITLES = {
     "hb16": "Aᴜᴛᴏᴘʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
 }
 
-HELP_CENTER_EMOJI = '<tg-emoji emoji-id="5827954206136340308">💡</tg-emoji>'
+HELP_CENTER_EMOJI = '<tg-emoji emoji-id="4956560313064358770">💡</tg-emoji>'
 
 
 def _topic_page(topic):
