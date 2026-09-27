@@ -31,13 +31,22 @@ HELP_TOPICS = {
 }
 
 HELP_PAGES = ["hb1", "hb2", "hb6", "hb11", "hb14", "hb16"]
+PREMIUM_EMOJI = {
+    "hb1": ("5429571366384842791", "👮‍♂️"),
+    "hb2": ("5258362837411045098", "👤"),
+    "hb6": ("5850346984501680054", "▶️"),
+    "hb11": ("6089165857856952184", "🎵"),
+    "hb14": ("4969883048213480204", "🎙️"),
+    "hb16": ("6030657343744644592", "🔁"),
+}
+
 HELP_TITLES = {
-    "hb1": "🔒 Aᴅᴍɪɴ Cᴏᴍᴍᴀɴᴅs",
-    "hb2": "🔒 Aᴜᴛʜ Cᴏᴍᴍᴀɴᴅs",
-    "hb6": "🔒 C-Pʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
-    "hb11": "🔒 Pʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
-    "hb14": "🔒 Sᴏɴɢ Cᴏᴍᴍᴀɴᴅs",
-    "hb16": "🔒 Aᴜᴛᴏᴘʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
+    "hb1": "Aᴅᴍɪɴ Cᴏᴍᴍᴀɴᴅs",
+    "hb2": "Aᴜᴛʜ Cᴏᴍᴍᴀɴᴅs",
+    "hb6": "C-Pʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
+    "hb11": "Pʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
+    "hb14": "Sᴏɴɢ Cᴏᴍᴍᴀɴᴅs",
+    "hb16": "Aᴜᴛᴏᴘʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
 }
 
 
@@ -49,10 +58,16 @@ def _topic_for_page(page):
     return HELP_PAGES[page - 1]
 
 
+def _custom_emoji(topic):
+    emoji_id, fallback = PREMIUM_EMOJI[topic]
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
 def _page_text(topic, page):
+    icon = _custom_emoji(topic)
     return (
-        f"<b>🔒 Hᴇʟᴘ Cᴇɴᴛᴇʀ {page}/{len(HELP_PAGES)}</b>\n\n"
-        f"<b>{HELP_TITLES[topic]}</b>\n\n{HELP_TOPICS[topic]}"
+        f"<b>{icon} Hᴇʟᴘ Cᴇɴᴛᴇʀ {page}/{len(HELP_PAGES)}</b>\n\n"
+        f"<b>{icon} {HELP_TITLES[topic]}</b>\n\n{HELP_TOPICS[topic]}"
     )
 
 
