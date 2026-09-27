@@ -52,6 +52,20 @@ HELP_TITLES = {
 HELP_CENTER_EMOJI = '<tg-emoji emoji-id="5827954206136340308">💡</tg-emoji>'
 
 
+def _topic_page(topic):
+    """Return the 1-based Help Center page number for a topic key."""
+    try:
+        return HELP_PAGES.index(topic) + 1
+    except ValueError:
+        return 1
+
+
+def _topic_for_page(page):
+    """Return the Help Center topic key for a 1-based page number."""
+    page = max(1, min(int(page), len(HELP_PAGES)))
+    return HELP_PAGES[page - 1]
+
+
 def _page_text(topic, page):
     emoji_id, fallback = PREMIUM_EMOJI[topic]
     icon = f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
