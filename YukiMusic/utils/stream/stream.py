@@ -60,7 +60,7 @@ async def _send_rich_background(
     caption,
     markup,
 ):
-    """Send Rich Now Playing without blocking audio playback."""
+    """Send Rich UI as early as possible without blocking playback."""
     try:
         run = await send_now_playing_rich(
             yuki,
@@ -70,9 +70,17 @@ async def _send_rich_background(
             caption,
             replace=None,
         )
-        if db.get(chat_id):
-            db[chat_id][0]["mystic"] = run
-            db[chat_id][0]["markup"] = markup
+        # The queue entry may be created a moment after this task starts.
+        # Give the playback flow a tiny window to create it so progress/edit
+        # features still have the Rich message stored in db.
+        for _ in range(20):
+            if db.get(chat_id):
+                db[chat_id][0]["mystic"] = run
+                db[chat_id][0]["markup"] = markup
+                db[chat_id][0]["np_photo"] = photo
+                db[chat_id][0]["np_caption"] = caption
+                break
+            await asyncio.sleep(0.05)
     except Exception:
         # Rich UI must never interrupt or crash playback.
         pass
@@ -210,13 +218,28 @@ async def _stream(
                     _, chat_id, vidid, mystic, video
                 )
 
-                await Shruti.join_call(
-                    chat_id,
-                    original_chat_id,
-                    file_path,
-                    video=status,
-                    image=thumbnail,
+                rich_task = asyncio.create_task(
+                    _send_rich_background(
+                        chat_id, original_chat_id, thumbnail,
+                        _["stream_1"].format(
+                            f"https://t.me/{yuki.username}?start=info_{vidid}",
+                            title[:23], duration_min, user_name
+                        ),
+                        "stream",
+                    )
                 )
+
+                try:
+                    await Shruti.join_call(
+                        chat_id,
+                        original_chat_id,
+                        file_path,
+                        video=status,
+                        image=thumbnail,
+                    )
+                except Exception:
+                    rich_task.cancel()
+                    raise
 
                 await put_queue(
                     chat_id,
@@ -231,20 +254,8 @@ async def _stream(
                     forceplay=forceplay,
                 )
 
-                # Use the already available source thumbnail immediately.
-                # Rich UI is sent in the background so playback is not blocked.
-                _schedule_rich_background(
-                    chat_id,
-                    original_chat_id,
-                    thumbnail,
-                    _["stream_1"].format(
-                        f"https://t.me/{yuki.username}?start=info_{vidid}",
-                        title[:23],
-                        duration_min,
-                        user_name,
-                    ),
-                    "stream",
-                )
+                # Rich UI was already started before the voice-call join,
+                # so Telegram can render it while PyTgCalls is joining.
 
         if count == 0:
             return
@@ -307,13 +318,28 @@ async def _stream(
                 if not forceplay:
                     db[chat_id] = []
 
-                await Shruti.join_call(
-                    chat_id,
-                    original_chat_id,
-                    file_path,
-                    video=status,
-                    image=thumbnail,
+                rich_task = asyncio.create_task(
+                    _send_rich_background(
+                        chat_id, original_chat_id, thumbnail,
+                        _["stream_1"].format(
+                            f"https://t.me/{yuki.username}?start=info_{vidid}",
+                            title[:23], duration_min, user_name
+                        ),
+                        "stream",
+                    )
                 )
+
+                try:
+                    await Shruti.join_call(
+                        chat_id,
+                        original_chat_id,
+                        file_path,
+                        video=status,
+                        image=thumbnail,
+                    )
+                except Exception:
+                    rich_task.cancel()
+                    raise
 
                 await put_queue(
                     chat_id,
@@ -328,20 +354,7 @@ async def _stream(
                     forceplay=forceplay,
                 )
 
-                # Do NOT wait for get_thumb() here.
-                # The source thumbnail is already available from YouTube.track().
-                _schedule_rich_background(
-                    chat_id,
-                    original_chat_id,
-                    thumbnail,
-                    _["stream_1"].format(
-                        f"https://t.me/{yuki.username}?start=info_{vidid}",
-                        title[:23],
-                        duration_min,
-                        user_name,
-                    ),
-                    "stream",
-                )
+                # Rich UI was started before the voice-call join.
 
     elif streamtype == "soundcloud":
         file_path = result["filepath"]
@@ -370,12 +383,25 @@ async def _stream(
             if not forceplay:
                 db[chat_id] = []
 
-            await Shruti.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=None,
+            rich_task = asyncio.create_task(
+                _send_rich_background(
+                    chat_id, original_chat_id, config.SOUNCLOUD_IMG_URL,
+                    _["stream_1"].format(
+                        config.SUPPORT_CHAT, title[:23], duration_min, user_name
+                    ),
+                    "tg",
+                )
             )
+            try:
+                await Shruti.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=None,
+                )
+            except Exception:
+                rich_task.cancel()
+                raise
 
             await put_queue(
                 chat_id,
@@ -390,18 +416,6 @@ async def _stream(
                 forceplay=forceplay,
             )
 
-            _schedule_rich_background(
-                chat_id,
-                original_chat_id,
-                config.SOUNCLOUD_IMG_URL,
-                _["stream_1"].format(
-                    config.SUPPORT_CHAT,
-                    title[:23],
-                    duration_min,
-                    user_name,
-                ),
-                "tg",
-            )
 
     elif streamtype == "telegram":
         file_path = result["path"]
@@ -432,12 +446,24 @@ async def _stream(
             if not forceplay:
                 db[chat_id] = []
 
-            await Shruti.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=status,
+            rich_task = asyncio.create_task(
+                _send_rich_background(
+                    chat_id, original_chat_id,
+                    config.TELEGRAM_VIDEO_URL if video else config.TELEGRAM_AUDIO_URL,
+                    _["stream_1"].format(link, title[:23], duration_min, user_name),
+                    "tg",
+                )
             )
+            try:
+                await Shruti.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=status,
+                )
+            except Exception:
+                rich_task.cancel()
+                raise
 
             await put_queue(
                 chat_id,
@@ -455,18 +481,6 @@ async def _stream(
             if video:
                 await add_active_video_chat(chat_id)
 
-            _schedule_rich_background(
-                chat_id,
-                original_chat_id,
-                config.TELEGRAM_VIDEO_URL if video else config.TELEGRAM_AUDIO_URL,
-                _["stream_1"].format(
-                    link,
-                    title[:23],
-                    duration_min,
-                    user_name,
-                ),
-                "tg",
-            )
 
     elif streamtype == "live":
         link = result["link"]
@@ -503,13 +517,27 @@ async def _stream(
             if n == 0:
                 raise AssistantErr(_["str_3"])
 
-            await Shruti.join_call(
-                chat_id,
-                original_chat_id,
-                file_path,
-                video=status,
-                image=thumbnail if thumbnail else None,
+            rich_task = asyncio.create_task(
+                _send_rich_background(
+                    chat_id, original_chat_id, thumbnail,
+                    _["stream_1"].format(
+                        f"https://t.me/{yuki.username}?start=info_{vidid}",
+                        title[:23], duration_min, user_name
+                    ),
+                    "tg",
+                )
             )
+            try:
+                await Shruti.join_call(
+                    chat_id,
+                    original_chat_id,
+                    file_path,
+                    video=status,
+                    image=thumbnail if thumbnail else None,
+                )
+            except Exception:
+                rich_task.cancel()
+                raise
 
             await put_queue(
                 chat_id,
@@ -524,18 +552,6 @@ async def _stream(
                 forceplay=forceplay,
             )
 
-            _schedule_rich_background(
-                chat_id,
-                original_chat_id,
-                thumbnail,
-                _["stream_1"].format(
-                    f"https://t.me/{yuki.username}?start=info_{vidid}",
-                    title[:23],
-                    duration_min,
-                    user_name,
-                ),
-                "tg",
-            )
 
     elif streamtype == "index":
         link = result
@@ -563,12 +579,22 @@ async def _stream(
             if not forceplay:
                 db[chat_id] = []
 
-            await Shruti.join_call(
-                chat_id,
-                original_chat_id,
-                link,
-                video=True if video else None,
+            rich_task = asyncio.create_task(
+                _send_rich_background(
+                    chat_id, original_chat_id, config.STREAM_IMG_URL,
+                    _["stream_2"].format(user_name), "tg"
+                )
             )
+            try:
+                await Shruti.join_call(
+                    chat_id,
+                    original_chat_id,
+                    link,
+                    video=True if video else None,
+                )
+            except Exception:
+                rich_task.cancel()
+                raise
 
             await put_queue_index(
                 chat_id,
@@ -582,10 +608,3 @@ async def _stream(
                 forceplay=forceplay,
             )
 
-            _schedule_rich_background(
-                chat_id,
-                original_chat_id,
-                config.STREAM_IMG_URL,
-                _["stream_2"].format(user_name),
-                "tg",
-            )
