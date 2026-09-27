@@ -20,12 +20,12 @@ HELP_BUTTON_EMOJI = {
 }
 
 NAV_EMOJI = {
-    "prev": "5357165441909279397",
-    "page": "4956260073375532310",
-    "next": "5354815888639942120",
-    "home": "4956525562483967357",
-    "back": "5447506720316225765",
-    "close": "6269316311172518259",
+    "prev": "5960671702059848143",
+    "page": "5827954206136340308",
+    "next": "6267119710278522544",
+    "home": "5413694143601842851",
+    "back": "5352759161945867747",
+    "close": "4956612582816351459",
 }
 
 
@@ -97,7 +97,7 @@ def help_topic_markup(_, page: int = 1, START: Union[bool, int] = None):
     if page > 1:
         navigation_row.append(
             _button(
-                text=_["PREV_BUTTON"],
+                text="\u2009",
                 callback_data=f"help_page {page - 1} {sf}",
                 style=ButtonStyle.PRIMARY,
                 emoji_id=NAV_EMOJI["prev"],
@@ -116,7 +116,7 @@ def help_topic_markup(_, page: int = 1, START: Union[bool, int] = None):
     if page < total:
         navigation_row.append(
             _button(
-                text=_["NEXT_BUTTON"],
+                text="\u2009",
                 callback_data=f"help_page {page + 1} {sf}",
                 style=ButtonStyle.PRIMARY,
                 emoji_id=NAV_EMOJI["next"],
