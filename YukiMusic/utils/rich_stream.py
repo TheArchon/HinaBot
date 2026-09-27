@@ -141,15 +141,53 @@ def _song_rich_button(line, style):
     )
 
 
-def _html_caption_to_blocks(caption_html, song_button_style=None):
+def _requester_rich_button(line, style):
+    """Turn the requester line into a centered clickable user button."""
+    match = re.search(
+        r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
+        line,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+
+    url = match.group(1)
+    name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    if not name:
+        return None
+
+    # Keep the same visual label while making the user name a real button.
+    label = _richify_custom_emojis(f"👤 𝐑ᴇǫᴜᴇsᴛᴇᴅ 𝐁ʏ :  {name}")
+    return types.InputRichBlockButtons(
+        buttons=[
+            types.RichMessageButton(
+                text=label,
+                style=style,
+                url=url,
+            )
+        ],
+        align="center",
+    )
+
+
+def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
     lines = _balance_lines(caption_html)
     blocks = []
     center_next_song = False
 
     if song_button_style is None:
         song_button_style = random.choice(_BUTTON_STYLES)
+    if requester_button_style is None:
+        requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
+        # The requester is rendered as a centered Rich button, like the song title.
+        if "tg://user?id=" in line:
+            requester_button = _requester_rich_button(line, requester_button_style)
+            if requester_button is not None:
+                blocks.append(requester_button)
+                continue
+
         if center_next_song and line.strip():
             song_button = _song_rich_button(line, song_button_style)
             if song_button is not None:
@@ -278,7 +316,11 @@ def build_now_playing_blocks(
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
     styles = _random_styles()
-    blocks += _html_caption_to_blocks(caption_html, song_button_style=styles[4])
+    blocks += _html_caption_to_blocks(
+        caption_html,
+        song_button_style=styles[4],
+        requester_button_style=enums.ButtonStyle.DANGER,
+    )
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
     blocks += _control_rows(_, chat_id, playing, styles[:4])
