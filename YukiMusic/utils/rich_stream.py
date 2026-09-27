@@ -11,7 +11,49 @@ from strings import get_string
 
 _TAG_RE = re.compile(r"<(/?)(b|a)(?:\s+href=([^>]+))?>", re.IGNORECASE)
 
+# Premium Custom Emoji mapping for the six emojis used in the now-playing card.
+# The last two use the closest matching Premium emojis available in the supplied list:
+# 🎶 -> 🎵 and 🔊 -> 📢.
+_CUSTOM_EMOJI = {
+    "🎧": ("6082387600599944892", "🎧"),
+    "🎵": ("6100424015111787987", "🎵"),
+    "⏱": ("5267421370114914946", "⏱"),
+    "👤": ("5258362837411045098", "👤"),
+    "🎶": ("6100424015111787987", "🎵"),
+    "🔊": ("6039381989985882045", "📢"),
+}
+_CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJI, key=len, reverse=True)))
+
 _consumed = set()
+
+
+def _richify_custom_emojis(value):
+    """Convert normal now-playing emojis inside text into Telegram RichTextCustomEmoji."""
+    if not isinstance(value, str):
+        return value
+
+    matches = list(_CUSTOM_EMOJI_RE.finditer(value))
+    if not matches:
+        return value
+
+    parts = []
+    pos = 0
+    for match in matches:
+        if match.start() > pos:
+            parts.append(value[pos:match.start()])
+        emoji = match.group(0)
+        emoji_id, alternative = _CUSTOM_EMOJI[emoji]
+        parts.append(
+            types.RichTextCustomEmoji(
+                custom_emoji_id=emoji_id,
+                alternative_text=alternative,
+            )
+        )
+        pos = match.end()
+
+    if pos < len(value):
+        parts.append(value[pos:])
+    return parts[0] if len(parts) == 1 else parts
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
 
@@ -27,7 +69,7 @@ def _parse_inline(segment):
 
     for m in _TAG_RE.finditer(segment):
         if m.start() > pos:
-            parts.append(segment[pos : m.start()])
+            parts.append(_richify_custom_emojis(segment[pos : m.start()]))
         pos = m.end()
 
         closing, tag, href = m.group(1), m.group(2).lower(), m.group(3)
@@ -45,7 +87,7 @@ def _parse_inline(segment):
                 parts.append(types.RichTextUrl(text=inner, url=url))
 
     if pos < len(segment):
-        parts.append(segment[pos:])
+        parts.append(_richify_custom_emojis(segment[pos:]))
 
     if not parts:
         return ""
