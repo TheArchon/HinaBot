@@ -55,7 +55,12 @@ HELP_CENTER_EMOJI = '<tg-emoji emoji-id="5827954206136340308">💡</tg-emoji>'
 def _page_text(topic, page):
     emoji_id, fallback = PREMIUM_EMOJI[topic]
     icon = f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-    commands = format_help_topic(HELP_TOPICS[topic])
+    emoji_id, fallback = PREMIUM_EMOJI[topic]
+    commands = format_help_topic(
+        HELP_TOPICS[topic],
+        emoji_id=emoji_id,
+        fallback_emoji=fallback,
+    )
     return (
         f"<b>{HELP_CENTER_EMOJI} Hᴇʟᴘ Cᴇɴᴛᴇʀ {page}/{len(HELP_PAGES)}</b>\n\n"
         f"<b>{icon} {HELP_TITLES[topic]}</b>\n\n{commands}"
