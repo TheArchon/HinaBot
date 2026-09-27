@@ -9,7 +9,7 @@ from YukiMusic import yuki
 from YukiMusic.utils import help_pannel
 from YukiMusic.utils.database import get_lang
 from YukiMusic.utils.decorators.language import LanguageStart, languageCB
-from YukiMusic.utils.inline.help import help_topic_markup, private_help_panel
+from YukiMusic.utils.inline.help import format_help_topic, help_topic_markup, private_help_panel
 from YukiMusic.utils.inline.start import private_panel
 from config import BANNED_USERS, START_IMG_URL, SUPPORT_CHAT
 from strings import get_string, helpers
@@ -49,28 +49,16 @@ HELP_TITLES = {
     "hb16": "Aᴜᴛᴏᴘʟᴀʏ Cᴏᴍᴍᴀɴᴅs",
 }
 
-
-def _topic_page(cb):
-    return HELP_PAGES.index(cb) + 1
-
-
-def _topic_for_page(page):
-    return HELP_PAGES[page - 1]
-
-
-def _custom_emoji(topic):
-    emoji_id, fallback = PREMIUM_EMOJI[topic]
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-
-
 HELP_CENTER_EMOJI = '<tg-emoji emoji-id="5827954206136340308">💡</tg-emoji>'
 
 
 def _page_text(topic, page):
-    icon = _custom_emoji(topic)
+    emoji_id, fallback = PREMIUM_EMOJI[topic]
+    icon = f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    commands = format_help_topic(HELP_TOPICS[topic])
     return (
         f"<b>{HELP_CENTER_EMOJI} Hᴇʟᴘ Cᴇɴᴛᴇʀ {page}/{len(HELP_PAGES)}</b>\n\n"
-        f"<b>{icon} {HELP_TITLES[topic]}</b>\n\n{HELP_TOPICS[topic]}"
+        f"<b>{icon} {HELP_TITLES[topic]}</b>\n\n{commands}"
     )
 
 
