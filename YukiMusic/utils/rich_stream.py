@@ -27,6 +27,10 @@ _CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJ
 
 _consumed = set()
 
+# Keeps the original Rich blocks available during the short startup race
+# where stream.py sends the Rich message before the playback DB entry exists.
+_pending_np_blocks = {}
+
 
 def _richify_custom_emojis(value):
     """Convert normal now-playing emojis inside text into Telegram RichTextCustomEmoji."""
@@ -410,13 +414,28 @@ async def send_now_playing_rich(
     client, chat_id, target_chat_id, photo, caption_html, replace=None
 ):
     _ = await _lang(chat_id)
+
+    # Build the card ONCE. These blocks contain the Premium Custom Emoji
+    # objects. Progress updates must reuse these blocks instead of rebuilding
+    # the caption from plain strings.
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
+
+    # Always keep a copy in the module cache. stream.py can call this before
+    # its DB entry is created, so relying only on db.get(chat_id) causes the
+    # progress updater to have nothing to edit.
+    _pending_np_blocks[chat_id] = list(blocks)
+
     if db.get(chat_id):
-        db[chat_id][0]["np_blocks"] = blocks
+        db[chat_id][0]["np_blocks"] = list(blocks)
+
     msg = await _deliver(client, target_chat_id, blocks, replace)
+
     if db.get(chat_id):
         db[chat_id][0]["np_photo"] = photo
         db[chat_id][0]["np_caption"] = caption_html
+        db[chat_id][0]["mystic"] = msg
+        db[chat_id][0]["np_blocks"] = list(blocks)
+
     return msg
 
 
@@ -465,15 +484,32 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
     if not info:
         return None
 
+    # Reuse the exact Rich blocks created for the original message.
+    # This is the important part: the Premium Custom Emoji objects are never
+    # reconstructed from normal emoji text during a progress edit.
     blocks = info[0].get("np_blocks")
+    if not blocks:
+        blocks = _pending_np_blocks.get(chat_id)
+
     if not blocks:
         return None
 
-    progress_block = _progress_row(
-        played,
-        dur,
-        enums.ButtonStyle.DEFAULT,
-    )
+    progress_style = enums.ButtonStyle.DEFAULT
+
+    # The progress button originally uses styles[4], which is also used by
+    # the song-title Rich button. Reuse that style when it is available.
+    for block in blocks:
+        if isinstance(block, types.InputRichBlockButtons):
+            for button in (getattr(block, "buttons", None) or []):
+                if getattr(button, "url", None):
+                    progress_style = getattr(
+                        button, "style", enums.ButtonStyle.DEFAULT
+                    )
+                    break
+        if progress_style != enums.ButtonStyle.DEFAULT:
+            break
+
+    progress_block = _progress_row(played, dur, progress_style)
 
     new_blocks = []
     replaced = False
@@ -481,6 +517,8 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
     for block in blocks:
         if isinstance(block, types.InputRichBlockButtons):
             buttons = getattr(block, "buttons", None) or []
+
+            # Existing progress row: replace ONLY this row.
             if any(
                 getattr(button, "callback_data", None) == "GetTimer"
                 for button in buttons
@@ -491,31 +529,33 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
 
         new_blocks.append(block)
 
-    # The initial play message does not contain a progress row.
-    # Insert it immediately before the control buttons, while preserving
-    # every original Rich block (including Premium Custom Emojis).
     if not replaced:
+        # First progress tick: the initial card has no progress row.
+        # Put the row directly before the first ADMIN control row.
         insert_at = len(new_blocks)
+
         for index, block in enumerate(new_blocks):
-            if isinstance(block, types.InputRichBlockButtons):
-                buttons = getattr(block, "buttons", None) or []
-                callbacks = [
-                    getattr(button, "callback_data", None)
-                    for button in buttons
-                ]
-                if any(
-                    isinstance(callback, str)
-                    and callback.startswith("ADMIN ")
-                    for callback in callbacks
-                ):
-                    insert_at = index
-                    break
+            if not isinstance(block, types.InputRichBlockButtons):
+                continue
+
+            buttons = getattr(block, "buttons", None) or []
+            callbacks = [
+                getattr(button, "callback_data", None)
+                for button in buttons
+            ]
+
+            if any(
+                isinstance(callback, str) and callback.startswith("ADMIN ")
+                for callback in callbacks
+            ):
+                insert_at = index
+                break
 
         new_blocks.insert(insert_at, progress_block)
 
-    # Save the updated block structure so the next 7-second tick edits
-    # the same progress row instead of rebuilding the whole Rich card.
-    info[0]["np_blocks"] = new_blocks
+    # Cache the block list for the next 7-second update.
+    info[0]["np_blocks"] = list(new_blocks)
+    _pending_np_blocks[chat_id] = list(new_blocks)
 
     return await _edit_rich(mystic, new_blocks)
 
