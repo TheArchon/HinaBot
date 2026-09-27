@@ -113,24 +113,57 @@ def _balance_lines(caption_html):
     return lines
 
 
-def _html_caption_to_blocks(caption_html):
+def _song_rich_button(line, style):
+    """Turn the first linked song-title line into a coloured Rich Button."""
+    match = re.fullmatch(
+        r"\s*<a\s+href=([^>]+)>(.*?)</a>\s*",
+        line,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return None
+
+    url = match.group(1).strip("\"'")
+    title = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    if not url or not title:
+        return None
+
+    button_text = _richify_custom_emojis(f"🎵 {title}")
+    return types.InputRichBlockButtons(
+        buttons=[
+            types.RichMessageButton(
+                text=button_text,
+                style=style,
+                url=url,
+            )
+        ],
+        align="center",
+    )
+
+
+def _html_caption_to_blocks(caption_html, song_button_style=None):
     lines = _balance_lines(caption_html)
     blocks = []
-    center_next_link = False
+    center_next_song = False
+
+    if song_button_style is None:
+        song_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        if center_next_link and line.strip():
-            blocks.append(
-                types.InputRichBlockPullQuotation(text=_parse_inline(line))
-            )
-            center_next_link = False
+        if center_next_song and line.strip():
+            song_button = _song_rich_button(line, song_button_style)
+            if song_button is not None:
+                blocks.append(song_button)
+            else:
+                blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
+            center_next_song = False
             continue
 
         if "Nᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line or "𝐍ᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line:
             blocks.append(
                 types.InputRichBlockPullQuotation(text=_parse_inline(line))
             )
-            center_next_link = True
+            center_next_song = True
         else:
             blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
 
@@ -244,8 +277,8 @@ def build_now_playing_blocks(
     _, photo, caption_html, chat_id, played=None, dur=None, playing=True
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
-    blocks += _html_caption_to_blocks(caption_html)
     styles = _random_styles()
+    blocks += _html_caption_to_blocks(caption_html, song_button_style=styles[4])
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
     blocks += _control_rows(_, chat_id, playing, styles[:4])
