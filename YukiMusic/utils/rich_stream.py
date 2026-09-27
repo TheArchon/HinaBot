@@ -354,13 +354,15 @@ async def send_now_playing_rich(
 ):
     _ = await _lang(chat_id)
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
-    msg = await _deliver(client, target_chat_id, blocks, replace)
+
+    # Cache the original blocks BEFORE delivery so a concurrent progress
+    # update can never miss the cached Rich message.
     if db.get(chat_id):
         db[chat_id][0]["np_photo"] = photo
         db[chat_id][0]["np_caption"] = caption_html
-        # Keep the exact original Rich blocks so progress updates do not
-        # rebuild/re-serialize the Premium Custom Emoji blocks.
         db[chat_id][0]["np_blocks"] = list(blocks)
+
+    msg = await _deliver(client, target_chat_id, blocks, replace)
     return msg
 
 
@@ -413,7 +415,16 @@ async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True
     # Only the progress row is changed; Premium Custom Emojis are untouched.
     cached_blocks = info[0].get("np_blocks")
     if not cached_blocks:
-        return None
+        # Preserve the old behavior as a compatibility fallback.
+        photo = info[0].get("np_photo")
+        caption_html = info[0].get("np_caption")
+        if not photo or not caption_html:
+            return None
+        _ = await _lang(chat_id)
+        blocks = build_now_playing_blocks(
+            _, photo, caption_html, chat_id, played, dur, playing
+        )
+        return await _edit_rich(mystic, blocks)
 
     blocks = list(cached_blocks)
     progress_index = None
