@@ -11,6 +11,9 @@ from strings import get_string
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
 
+# Track messages temporarily consumed by rich-stream replacement.
+_consumed = set()
+
 
 
 async def _lang(chat_id):
