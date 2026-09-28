@@ -104,7 +104,7 @@ def _song_rich_button(line, style):
 
 
 def _requester_rich_button(line, style):
-    """Turn the requester line into a centered clickable user button."""
+    """Turn only the requester name into a centered clickable button."""
     match = re.search(
         r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
         line,
@@ -118,18 +118,25 @@ def _requester_rich_button(line, style):
     if not name:
         return None
 
-    # Keep the same visual label while making the user name a real button.
-    label = f"👤 𝐑ᴇǫᴜᴇsᴛᴇᴅ 𝐁ʏ :  {name}"
     return types.InputRichBlockButtons(
         buttons=[
             types.RichMessageButton(
-                text=label,
+                text=f"👤 {name}",
                 style=style,
                 url=url,
             )
         ],
         align="center",
     )
+
+
+def _center_visual_text(text):
+    """Visually center short paragraph text using Unicode em-spaces."""
+    clean = re.sub(r"<[^>]+>", "", text).strip()
+    if not clean:
+        return text
+    padding = max(1, min(12, 12 - len(clean) // 10))
+    return "\u2003" * padding + text
 
 
 def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
@@ -143,10 +150,27 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
         requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        # The requester is rendered as a centered Rich button, like the song title.
+        # Center the duration line visually.
+        if re.search(r"D(?:ᴜ|u)ʀᴀᴛɪᴏɴ\s*[·:]", line, re.IGNORECASE):
+            blocks.append(
+                types.InputRichBlockParagraph(
+                    text=_parse_inline(_center_visual_text(line))
+                )
+            )
+            continue
+
+        # Keep "Requested By" centered as text and make only the user name a button.
         if "tg://user?id=" in line:
             requester_button = _requester_rich_button(line, requester_button_style)
             if requester_button is not None:
+                before = line.split("<a", 1)[0].strip()
+                before = re.sub(r"[.:：\-–—]+\s*$", "", before).strip()
+                if before:
+                    blocks.append(
+                        types.InputRichBlockParagraph(
+                            text=_parse_inline(_center_visual_text(before))
+                        )
+                    )
                 blocks.append(requester_button)
                 continue
 
