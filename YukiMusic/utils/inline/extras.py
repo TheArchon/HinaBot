@@ -1,4 +1,4 @@
-from pyrogram import enums
+from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import SUPPORT_CHAT, SUPPORT_CHANNEL
@@ -7,11 +7,26 @@ from config import SUPPORT_CHAT, SUPPORT_CHANNEL
 def botplaylist_markup(_):
     buttons = [
         [
-            InlineKeyboardButton(text=_["S_B_9"], url=SUPPORT_CHAT),
-            InlineKeyboardButton(text="Cʜᴀɴɴᴇʟ", url=SUPPORT_CHANNEL),
+            InlineKeyboardButton(
+                text=_["S_B_9"],
+                url=SUPPORT_CHAT,
+                style=ButtonStyle.PRIMARY,
+                icon_custom_emoji_id="6021618194228187816",
+            ),
+            InlineKeyboardButton(
+                text="Cʜᴀɴɴᴇʟ",
+                url=SUPPORT_CHANNEL,
+                style=ButtonStyle.SUCCESS,
+                icon_custom_emoji_id="6039381989985882045",
+            ),
         ],
         [
-            InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close"),
+            InlineKeyboardButton(
+                text=_["CLOSE_BUTTON"],
+                callback_data="close",
+                style=ButtonStyle.DANGER,
+                icon_custom_emoji_id="6269316311172518259",
+            ),
         ],
     ]
     return buttons
@@ -24,6 +39,8 @@ def close_markup(_):
                 InlineKeyboardButton(
                     text=_["CLOSE_BUTTON"],
                     callback_data="close",
+                    style=ButtonStyle.DANGER,
+                    icon_custom_emoji_id="6269316311172518259",
                 ),
             ]
         ]
@@ -38,7 +55,8 @@ def supp_markup(_):
                 InlineKeyboardButton(
                     text=_["S_B_9"],
                     url=SUPPORT_CHAT,
-                    style=enums.ButtonStyle.PRIMARY,
+                    style=ButtonStyle.PRIMARY,
+                    icon_custom_emoji_id="6021618194228187816",
                 ),
             ]
         ]
