@@ -160,10 +160,16 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
         requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        # Duration is centered using Telegram's native centered pull-quotation block.
+        # Duration: center it the same way as Requested By, without using
+        # Telegram's pull-quotation/quote block.
         if _is_duration_line(line):
+            plain = re.sub(r"<[^>]+>", "", line).strip()
+            width = 46
+            padding = max(2, (width - len(plain)) // 2)
             blocks.append(
-                types.InputRichBlockPullQuotation(text=_parse_inline(line))
+                types.InputRichBlockParagraph(
+                    text=["\u00a0" * padding, *_parse_inline(line)]
+                )
             )
             continue
 
