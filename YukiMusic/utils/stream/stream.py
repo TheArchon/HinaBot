@@ -62,6 +62,13 @@ async def _send_rich_background(
 ):
     """Send Rich UI as early as possible without blocking playback."""
     try:
+        # Wait briefly for the queue entry so rich_stream can read user_id.
+        # This keeps the requester button present during progress/state edits.
+        for _ in range(20):
+            if db.get(chat_id):
+                break
+            await asyncio.sleep(0.05)
+
         run = await send_now_playing_rich(
             yuki,
             chat_id,
@@ -70,17 +77,11 @@ async def _send_rich_background(
             caption,
             replace=None,
         )
-        # The queue entry may be created a moment after this task starts.
-        # Give the playback flow a tiny window to create it so progress/edit
-        # features still have the Rich message stored in db.
-        for _ in range(20):
-            if db.get(chat_id):
-                db[chat_id][0]["mystic"] = run
-                db[chat_id][0]["markup"] = markup
-                db[chat_id][0]["np_photo"] = photo
-                db[chat_id][0]["np_caption"] = caption
-                break
-            await asyncio.sleep(0.05)
+        if db.get(chat_id):
+            db[chat_id][0]["mystic"] = run
+            db[chat_id][0]["markup"] = markup
+            db[chat_id][0]["np_photo"] = photo
+            db[chat_id][0]["np_caption"] = caption
     except Exception:
         # Rich UI must never interrupt or crash playback.
         pass
