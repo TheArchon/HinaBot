@@ -8,13 +8,13 @@ def botplaylist_markup(_):
     buttons = [
         [
             InlineKeyboardButton(
-                text=_["S_B_9"],
+                text=_["Cʜᴀᴛ"],
                 url=SUPPORT_CHAT,
                 style=ButtonStyle.PRIMARY,
                 icon_custom_emoji_id="6021618194228187816",
             ),
             InlineKeyboardButton(
-                text="Cʜᴀɴɴᴇʟ",
+                text="Nᴇᴡs",
                 url=SUPPORT_CHANNEL,
                 style=ButtonStyle.SUCCESS,
                 icon_custom_emoji_id="6039381989985882045",
