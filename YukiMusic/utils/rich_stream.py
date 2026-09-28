@@ -104,17 +104,15 @@ def _song_rich_button(line, style):
 
 
 def _requester_rich_line(line, style, requester_user_id=None):
-    """Center Requested By without a quotation block.
+    """Center Requested By as a normal table row; only the name is clickable."""
+    plain = re.sub(r"<[^>]+>", "", line).strip()
 
-    The requester name is made clickable from the existing queue user_id.
-    This also works when the language string contains only the plain name.
-    """
+    # If the caption already contains a Telegram user link, preserve it.
     match = re.search(
         r"<a\s+href=(?:\"|\')?(tg://user\?id=\d+)(?:\"|\')?>(.*?)</a>",
         line,
         flags=re.IGNORECASE | re.DOTALL,
     )
-
     if match:
         url = match.group(1)
         name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
@@ -124,19 +122,28 @@ def _requester_rich_line(line, style, requester_user_id=None):
             line,
             flags=re.IGNORECASE | re.DOTALL,
         )
+        label = re.sub(r"<[^>]+>", "", label).strip()
     elif requester_user_id:
-        # The stock en.yml contains only {3} as a plain requester name.
-        # Build the Telegram user link here from the queue's stored user_id.
-        url = f"tg://user?id={requester_user_id}"
-        plain = re.sub(r"<[^>]+>", "", line)
-        m = re.search(r"(.*?ǫᴜᴇsᴛᴇᴅ\s*[bʙ]ʏ\s*:?\s*)(.*)$", plain, re.I)
-        if not m:
+        # Stock en.yml provides the requester as plain text ({3}), so split
+        # the label from the name and build the user link from queue user_id.
+        match = re.match(
+            r"^(.*?requested\s*by\s*:?\s*)(.+?)\s*$",
+            plain,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            match = re.match(
+                r"^(.*?ǫᴜᴇsᴛᴇᴅ\s*[bʙ]ʏ\s*:?\s*)(.+?)\s*$",
+                plain,
+                flags=re.IGNORECASE,
+            )
+        if not match:
             return None
-        label = plain[:m.start(1)].rstrip()
-        name = m.group(1).strip()
+        label = match.group(1).strip()
+        name = match.group(2).strip()
+        url = f"tg://user?id={requester_user_id}"
     else:
-        # Autoplay/other callers may not have a real requester id.
-        plain = re.sub(r"<[^>]+>", "", line).strip()
+        # No requester ID (for example autoplay): keep the line centered.
         return types.InputRichBlockTable(
             cells=[[types.InputRichBlockTableCell(text=plain, align="center")]],
             is_bordered=False,
@@ -148,22 +155,19 @@ def _requester_rich_line(line, style, requester_user_id=None):
 
     user_button = types.RichTextButton(
         button=types.RichMessageButton(
-            text=name,
+            text=f"👤 {name}",
             style=style,
             url=url,
         )
     )
 
-    label = re.sub(r"<[^>]+>", "", label).strip()
     return types.InputRichBlockTable(
-        cells=[
-            [
-                types.InputRichBlockTableCell(
-                    text=[label + " ", user_button],
-                    align="center",
-                )
-            ]
-        ],
+        cells=[[
+            types.InputRichBlockTableCell(
+                text=[label + " ", user_button],
+                align="center",
+            )
+        ]],
         is_bordered=False,
         is_compact=True,
     )
@@ -195,10 +199,19 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
         requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        # Duration is centered using Telegram's native centered pull-quotation block.
+        # Duration: centered normal text, NOT a quotation/pull-quote.
         if _is_duration_line(line):
             blocks.append(
-                types.InputRichBlockPullQuotation(text=_parse_inline(line))
+                types.InputRichBlockTable(
+                    cells=[[
+                        types.InputRichBlockTableCell(
+                            text=_parse_inline(line),
+                            align="center",
+                        )
+                    ]],
+                    is_bordered=False,
+                    is_compact=True,
+                )
             )
             continue
 
