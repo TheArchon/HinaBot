@@ -28,22 +28,18 @@ async def autoplay_command(client, message: Message, _, chat_id):
     await message.reply_text(_autoplay_command_text(mode), reply_markup=markup)
 
 
-@yuki.on_callback_query(filters.regex(r"^autoplay (?:on|off) ") & ~BANNED_USERS)
+@yuki.on_callback_query(filters.regex(r"^autoplay (?:on|off) -?\d+$") & ~BANNED_USERS)
 @ActualAdminCB
 async def autoplay_toggle(client, CallbackQuery, _):
-    _, action, chat_id = CallbackQuery.data.split()
-    chat_id = int(chat_id)
-    mode = await is_autoplay(chat_id)
+    _, action, raw_chat_id = CallbackQuery.data.split()
+    chat_id = int(raw_chat_id)
+    new_mode = action == "on"
 
-    if action == "on":
-        if not mode:
-            await autoplay_on(chat_id)
-        new_mode = True
+    if new_mode:
+        await autoplay_on(chat_id)
         toast = "Autoplay turned ON"
     else:
-        if mode:
-            await autoplay_off(chat_id)
-        new_mode = False
+        await autoplay_off(chat_id)
         toast = "Autoplay turned OFF"
 
     await CallbackQuery.answer(toast, show_alert=False)
@@ -56,7 +52,6 @@ async def autoplay_toggle(client, CallbackQuery, _):
             for button in row:
                 if button.callback_data and button.callback_data.startswith("autoplay "):
                     new_row.extend(autoplay_markup(chat_id, new_mode))
-                    break
                 else:
                     new_row.append(button)
             rows.append(new_row)
