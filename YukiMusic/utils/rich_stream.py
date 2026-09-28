@@ -90,7 +90,7 @@ def _song_rich_button(line, style):
     if not url or not title:
         return None
 
-    button_text = f"  {title}  "
+    button_text = f"  🎵 {title} 🎵  "
     return types.InputRichBlockButtons(
         buttons=[
             types.RichMessageButton(
@@ -103,53 +103,53 @@ def _song_rich_button(line, style):
     )
 
 
-def _requester_rich_line(line, style, requester_user_id=None):
-    """Render Requested By as centered inline text with only the name clickable."""
+def _requester_rich_line(line, style):
+    """Center Requested By and make only the user name clickable."""
     match = re.search(
         r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
         line,
         flags=re.IGNORECASE | re.DOTALL,
     )
+    if not match:
+        return None
 
-    if match:
-        url = match.group(1)
-        name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
-    else:
-        # The language string normally contains only the plain requester name.
-        # Use the queue's stored user_id so progress/state edits keep the button.
-        plain = re.sub(r"<[^>]+>", "", line).strip()
-        name_match = re.search(r":\s*(.+?)\s*$", plain)
-        name = name_match.group(1).strip() if name_match else ""
-        url = f"tg://user?id={requester_user_id}" if requester_user_id else None
-
-    if not name or not url:
+    url = match.group(1)
+    name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    if not name:
         return None
 
     user_button = types.RichTextButton(
         button=types.RichMessageButton(
-            text=f" {name}",
+            text=name,
             style=style,
             url=url,
         )
     )
-
-    # Paragraphs do not have a native align property. Use non-breaking spaces
-    # only for visual centering; this is NOT a quotation/pull-quote block.
-    label = re.sub(r"<[^>]+>", "", line).strip()
-    visible = re.sub(r"<[^>]+>", "", line).strip()
-    width = 46
-    padding = max(2, (width - len(visible)) // 2)
-    return types.InputRichBlockParagraph(
-        text=["\u00a0" * padding, label.split(":")[0].strip() + ": ", user_button]
+    label = re.sub(
+        r"<a\s+href=(?:\"|')?tg://user\?id=\d+(?:\"|')?>(.*?)</a>",
+        "",
+        line,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    label = re.sub(r"<[^>]+>", "", label).strip()
+    return types.InputRichBlockPullQuotation(
+        text=[label + " ", user_button]
     )
 
+
 def _is_duration_line(line):
-    """Detect the duration line so Telegram renders it centered."""
+    """Detect all duration label variants used by the language files."""
     plain = re.sub(r"<[^>]+>", "", line)
-    return bool(re.search(r"d[ᴜu]rᴀtɪᴏɴ", plain, re.IGNORECASE))
+    return bool(
+        re.search(
+            r"(?:[𝐃D]|ᴅ)ᴜʀᴀᴛɪᴏɴ",
+            plain,
+            re.IGNORECASE,
+        )
+    )
 
 
-def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None, requester_user_id=None):
+def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
     lines = _balance_lines(caption_html)
     blocks = []
     center_next_song = False
@@ -160,22 +160,16 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
         requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        # Duration: center it the same way as Requested By, without using
-        # Telegram's pull-quotation/quote block.
+        # Duration is centered using Telegram's native centered pull-quotation block.
         if _is_duration_line(line):
-            plain = re.sub(r"<[^>]+>", "", line).strip()
-            width = 46
-            padding = max(2, (width - len(plain)) // 2)
             blocks.append(
-                types.InputRichBlockParagraph(
-                    text=["\u00a0" * padding, *_parse_inline(line)]
-                )
+                types.InputRichBlockPullQuotation(text=_parse_inline(line))
             )
             continue
 
         # Center the requester line and keep only the user name clickable.
-        if "tg://user?id=" in line or "Rᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line) or "𝐑ᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line):
-            requester_line = _requester_rich_line(line, requester_button_style, requester_user_id)
+        if "tg://user?id=" in line:
+            requester_line = _requester_rich_line(line, requester_button_style)
             if requester_line is not None:
                 blocks.append(requester_line)
                 continue
@@ -308,17 +302,10 @@ def build_now_playing_blocks(
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
     styles = _random_styles()
-    requester_user_id = None
-    try:
-        if db.get(chat_id):
-            requester_user_id = db[chat_id][0].get("user_id")
-    except Exception:
-        requester_user_id = None
     blocks += _html_caption_to_blocks(
         caption_html,
         song_button_style=styles[4],
         requester_button_style=enums.ButtonStyle.DANGER,
-        requester_user_id=requester_user_id,
     )
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
