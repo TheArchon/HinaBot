@@ -74,7 +74,7 @@ def stream_markup_timer(_, chat_id, played, dur):
     return buttons
 
 
-AUTOPLAY_ENABLE_EMOJI = "6269163801178804220"
+AUTOPLAY_ENABLE_EMOJI = "6273749318717412886"
 AUTOPLAY_DISABLE_EMOJI = "6188193329662924600"
 
 
@@ -90,7 +90,7 @@ def autoplay_markup(chat_id, mode: bool):
         InlineKeyboardButton(
             text="⁣",
             callback_data=f"autoplay off {chat_id}",
-            style=ButtonStyle.DANGER,
+            style=ButtonStyle.PRIMARY,
             icon_custom_emoji_id=AUTOPLAY_DISABLE_EMOJI,
         ),
     ]
