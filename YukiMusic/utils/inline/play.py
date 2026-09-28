@@ -74,8 +74,12 @@ def stream_markup_timer(_, chat_id, played, dur):
 
 
 def autoplay_markup(chat_id, mode: bool):
-    text = "🔁 Autoplay: ON" if mode else "🔁 Autoplay: OFF"
-    return [InlineKeyboardButton(text=text, callback_data=f"autoplay {chat_id}")]
+    on_text = "✅ Enable" if mode else "Enable"
+    off_text = "❌ Disable" if not mode else "Disable"
+    return [
+        InlineKeyboardButton(text=on_text, callback_data=f"autoplay on {chat_id}"),
+        InlineKeyboardButton(text=off_text, callback_data=f"autoplay off {chat_id}"),
+    ]
 
 
 async def stream_markup(_, chat_id):
