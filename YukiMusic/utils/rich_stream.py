@@ -90,7 +90,7 @@ def _song_rich_button(line, style):
     if not url or not title:
         return None
 
-    button_text = f"  🎵 {title} 🎵  "
+    button_text = f"  {title}  "
     return types.InputRichBlockButtons(
         buttons=[
             types.RichMessageButton(
@@ -127,7 +127,7 @@ def _requester_rich_line(line, style, requester_user_id=None):
 
     user_button = types.RichTextButton(
         button=types.RichMessageButton(
-            text=f"👤 {name}",
+            text=f"{name}",
             style=style,
             url=url,
         )
@@ -311,7 +311,7 @@ def build_now_playing_blocks(
     blocks += _html_caption_to_blocks(
         caption_html,
         song_button_style=styles[4],
-        requester_button_style=enums.ButtonStyle.DANGER,
+        requester_button_style=enums.ButtonStyle.PRIMARY,
         requester_user_id=requester_user_id,
     )
     if played and dur:
