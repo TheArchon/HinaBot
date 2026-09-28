@@ -103,8 +103,8 @@ def _song_rich_button(line, style):
     )
 
 
-def _requester_rich_text(line, style):
-    """Build a centered requester line with only the username as a clickable button."""
+def _requester_rich_line(line, style):
+    """Center Requested By and make only the user name clickable."""
     match = re.search(
         r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
         line,
@@ -118,30 +118,29 @@ def _requester_rich_text(line, style):
     if not name:
         return None
 
-    button = types.RichTextButton(
+    user_button = types.RichTextButton(
         button=types.RichMessageButton(
-            text=f"👤 {name}",
+            text=name,
             style=style,
             url=url,
         )
     )
+    label = re.sub(
+        r"<a\s+href=(?:\"|')?tg://user\?id=\d+(?:\"|')?>(.*?)</a>",
+        "",
+        line,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    label = re.sub(r"<[^>]+>", "", label).strip()
+    return types.InputRichBlockPullQuotation(
+        text=[label + " ", user_button]
+    )
 
-    prefix = re.sub(r"<a\s+href=.*?</a>", "", line, flags=re.IGNORECASE | re.DOTALL)
-    prefix = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", prefix)).strip()
-    if not prefix:
-        prefix = "Requested By :"
 
-    clean_len = len(prefix) + len(name) + 4
-    padding = max(1, min(12, 14 - clean_len // 9))
-    return ["\u2003" * padding + prefix + "  ", button]
-
-
-def _center_paragraph(text):
-    clean = re.sub(r"<[^>]+>", "", text).strip()
-    if not clean:
-        return text
-    padding = max(1, min(12, 14 - len(clean) // 9))
-    return "\u2003" * padding + text
+def _is_duration_line(line):
+    """Detect the duration line so Telegram renders it centered."""
+    plain = re.sub(r"<[^>]+>", "", line)
+    return bool(re.search(r"d[ᴜu]rᴀtɪᴏɴ", plain, re.IGNORECASE))
 
 
 def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
@@ -155,18 +154,18 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
         requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        if re.search(r"D(?:ᴜ|u)ʀᴀᴛɪᴏɴ\s*[·:]", line, re.IGNORECASE):
+        # Duration is centered using Telegram's native centered pull-quotation block.
+        if _is_duration_line(line):
             blocks.append(
-                types.InputRichBlockParagraph(
-                    text=_parse_inline(_center_paragraph(line))
-                )
+                types.InputRichBlockPullQuotation(text=_parse_inline(line))
             )
             continue
 
+        # Center the requester line and keep only the user name clickable.
         if "tg://user?id=" in line:
-            requester = _requester_rich_text(line, requester_button_style)
-            if requester is not None:
-                blocks.append(types.InputRichBlockParagraph(text=requester))
+            requester_line = _requester_rich_line(line, requester_button_style)
+            if requester_line is not None:
+                blocks.append(requester_line)
                 continue
 
         if center_next_song and line.strip():
@@ -187,6 +186,7 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
 
     return blocks
+
 
 def _progress_line(played, dur):
     played_sec = time_to_seconds(played)
