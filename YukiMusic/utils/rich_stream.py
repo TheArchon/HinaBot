@@ -1,4 +1,3 @@
-import asyncio
 import math
 import random
 import re
@@ -104,39 +103,45 @@ def _song_rich_button(line, style):
     )
 
 
-def _requester_rich_line(line, style):
-    """Center Requested By and make only the user name clickable."""
+def _requester_rich_line(line, style, requester_user_id=None):
+    """Render Requested By as centered inline text with only the name clickable."""
     match = re.search(
         r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
         line,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    if not match:
-        return None
 
-    url = match.group(1)
-    name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
-    if not name:
+    if match:
+        url = match.group(1)
+        name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    else:
+        # The language string normally contains only the plain requester name.
+        # Use the queue's stored user_id so progress/state edits keep the button.
+        plain = re.sub(r"<[^>]+>", "", line).strip()
+        name_match = re.search(r":\s*(.+?)\s*$", plain)
+        name = name_match.group(1).strip() if name_match else ""
+        url = f"tg://user?id={requester_user_id}" if requester_user_id else None
+
+    if not name or not url:
         return None
 
     user_button = types.RichTextButton(
         button=types.RichMessageButton(
-            text=name,
+            text=f"👤 {name}",
             style=style,
             url=url,
         )
     )
-    label = re.sub(
-        r"<a\s+href=(?:\"|')?tg://user\?id=\d+(?:\"|')?>(.*?)</a>",
-        "",
-        line,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    label = re.sub(r"<[^>]+>", "", label).strip()
-    return types.InputRichBlockPullQuotation(
-        text=[label + " ", user_button]
-    )
 
+    # Paragraphs do not have a native align property. Use non-breaking spaces
+    # only for visual centering; this is NOT a quotation/pull-quote block.
+    label = re.sub(r"<[^>]+>", "", line).strip()
+    visible = re.sub(r"<[^>]+>", "", line).strip()
+    width = 46
+    padding = max(2, (width - len(visible)) // 2)
+    return types.InputRichBlockParagraph(
+        text=["\u00a0" * padding, label.split(":")[0].strip() + ": ", user_button]
+    )
 
 def _is_duration_line(line):
     """Detect the duration line so Telegram renders it centered."""
@@ -144,41 +149,7 @@ def _is_duration_line(line):
     return bool(re.search(r"d[ᴜu]rᴀtɪᴏɴ", plain, re.IGNORECASE))
 
 
-async def _attach_requester_link(caption_html, chat_id):
-    """Add a Telegram user link using the queued track's stored user_id.
-
-    The language string only contains the requester's display name, while the
-    queue already stores the corresponding numeric Telegram user id. Waiting
-    briefly here also covers the first-play race where the rich message is
-    scheduled just before the queue entry is inserted.
-    """
-    if "tg://user?id=" in caption_html:
-        return caption_html
-
-    for _ in range(20):
-        tracks = db.get(chat_id) or []
-        if tracks:
-            entry = tracks[0]
-            user_id = entry.get("user_id")
-            requester = entry.get("by")
-            if user_id and requester:
-                lines = caption_html.split("\n")
-                for index, line in enumerate(lines):
-                    plain = re.sub(r"<[^>]+>", "", line).strip()
-                    if "ǫᴜᴇsᴛᴇᴅ" in plain or "ʀᴇǫᴜᴇsᴛᴇᴅ" in plain:
-                        escaped_name = str(requester).replace("&", "&amp;")
-                        lines[index] = line.replace(
-                            str(requester),
-                            f'<a href="tg://user?id={user_id}">{escaped_name}</a>',
-                            1,
-                        )
-                        return "\n".join(lines)
-                break
-        await asyncio.sleep(0.05)
-    return caption_html
-
-
-def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
+def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None, requester_user_id=None):
     lines = _balance_lines(caption_html)
     blocks = []
     center_next_song = False
@@ -197,8 +168,8 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             continue
 
         # Center the requester line and keep only the user name clickable.
-        if "tg://user?id=" in line:
-            requester_line = _requester_rich_line(line, requester_button_style)
+        if "tg://user?id=" in line or "Rᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line) or "𝐑ᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line):
+            requester_line = _requester_rich_line(line, requester_button_style, requester_user_id)
             if requester_line is not None:
                 blocks.append(requester_line)
                 continue
@@ -331,10 +302,17 @@ def build_now_playing_blocks(
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
     styles = _random_styles()
+    requester_user_id = None
+    try:
+        if db.get(chat_id):
+            requester_user_id = db[chat_id][0].get("user_id")
+    except Exception:
+        requester_user_id = None
     blocks += _html_caption_to_blocks(
         caption_html,
         song_button_style=styles[4],
         requester_button_style=enums.ButtonStyle.DANGER,
+        requester_user_id=requester_user_id,
     )
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
@@ -424,7 +402,6 @@ async def send_now_playing_rich(
     client, chat_id, target_chat_id, photo, caption_html, replace=None
 ):
     _ = await _lang(chat_id)
-    caption_html = await _attach_requester_link(caption_html, chat_id)
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
     msg = await _deliver(client, target_chat_id, blocks, replace)
     if db.get(chat_id):
