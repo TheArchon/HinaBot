@@ -11,54 +11,77 @@ from strings import get_string
 
 _TAG_RE = re.compile(r"<(/?)(b|a)(?:\s+href=([^>]+))?>", re.IGNORECASE)
 
-# Premium Custom Emoji mapping used by the Rich Stream / Now Playing output.
-# Keep the normal emoji as the fallback so Telegram can still display the label
-# when the custom emoji cannot be rendered.
+# Premium Custom Emoji mapping for the six emojis used in the now-playing card.
+# The last two use the closest matching Premium emojis available in the supplied list:
+# 🎶 -> 🎵 and 🔊 -> 📢.
 _CUSTOM_EMOJI = {
     "🎧": ("6082387600599944892", "🎧"),
     "🎵": ("6100424015111787987", "🎵"),
-    "🎶": ("6100424015111787987", "🎵"),
     "⏱": ("5267421370114914946", "⏱"),
     "👤": ("5258362837411045098", "👤"),
+    "🎶": ("6100424015111787987", "🎵"),
     "🔊": ("6039381989985882045", "📢"),
     "📌": ("6100546468924364734", "📌"),
-    "✕": ("6269316311172518259", "❌"),
 }
 _CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJI, key=len, reverse=True)))
+# Translation files can use {ce:CUSTOM_EMOJI_ID|fallback} to request a Premium
+# Custom Emoji directly from en.yml (or any language file). The visible fallback
+# text is only used as the Telegram custom-emoji alternative text.
+_CUSTOM_EMOJI_TOKEN_RE = re.compile(r"\{ce:(\d+)\|([^{}]+)\}")
 
 _consumed = set()
 
 
-def _richify_custom_emojis(value):
-    """Replace supported Unicode emojis with Telegram RichTextCustomEmoji nodes."""
-    if not isinstance(value, str):
-        return value
-
+def _richify_literal_emojis(value):
     matches = list(_CUSTOM_EMOJI_RE.finditer(value))
     if not matches:
         return value
-
     parts = []
     pos = 0
     for match in matches:
         if match.start() > pos:
             parts.append(value[pos:match.start()])
-
         emoji = match.group(0)
         emoji_id, alternative = _CUSTOM_EMOJI[emoji]
+        parts.append(types.RichTextCustomEmoji(custom_emoji_id=emoji_id, alternative_text=alternative))
+        pos = match.end()
+    if pos < len(value):
+        parts.append(value[pos:])
+    return parts[0] if len(parts) == 1 else parts
+
+
+def _richify_custom_emojis(value):
+    """Convert Premium Emoji tokens/literal emojis into RichTextCustomEmoji."""
+    if not isinstance(value, str):
+        return value
+
+    token_matches = list(_CUSTOM_EMOJI_TOKEN_RE.finditer(value))
+    if not token_matches:
+        return _richify_literal_emojis(value)
+
+    parts = []
+    pos = 0
+    for match in token_matches:
+        if match.start() > pos:
+            normal = _richify_literal_emojis(value[pos:match.start()])
+            if isinstance(normal, list):
+                parts.extend(normal)
+            else:
+                parts.append(normal)
         parts.append(
             types.RichTextCustomEmoji(
-                custom_emoji_id=str(emoji_id),
-                alternative_text=alternative,
+                custom_emoji_id=match.group(1),
+                alternative_text=match.group(2),
             )
         )
         pos = match.end()
 
     if pos < len(value):
-        parts.append(value[pos:])
-
-    # RichMessageButton.text and paragraph text both accept RichText.  Returning
-    # a node for a single emoji and a list for mixed text keeps both cases valid.
+        normal = _richify_literal_emojis(value[pos:])
+        if isinstance(normal, list):
+            parts.extend(normal)
+        else:
+            parts.append(normal)
     return parts[0] if len(parts) == 1 else parts
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
@@ -277,13 +300,13 @@ def _control_rows(_, chat_id, playing, styles):
     replay_style, toggle_style, skip_style, close_style = styles
     toggle = (
         types.RichMessageButton(
-            text=_["RICH_BTN_PAUSE"],
+            text=_richify_custom_emojis(_["RICH_BTN_PAUSE"]),
             style=toggle_style,
             callback_data=f"ADMIN Pause|{chat_id}",
         )
         if playing
         else types.RichMessageButton(
-            text=_["RICH_BTN_RESUME"],
+            text=_richify_custom_emojis(_["RICH_BTN_RESUME"]),
             style=toggle_style,
             callback_data=f"ADMIN Resume|{chat_id}",
         )
@@ -292,13 +315,13 @@ def _control_rows(_, chat_id, playing, styles):
         types.InputRichBlockButtons(
             buttons=[
                 types.RichMessageButton(
-                    text=_["RICH_BTN_REPLAY"],
+                    text=_richify_custom_emojis(_["RICH_BTN_REPLAY"]),
                     style=replay_style,
                     callback_data=f"ADMIN Replay|{chat_id}",
                 ),
                 toggle,
                 types.RichMessageButton(
-                    text=_["RICH_BTN_SKIP"],
+                    text=_richify_custom_emojis(_["RICH_BTN_SKIP"]),
                     style=skip_style,
                     callback_data=f"ADMIN Skip|{chat_id}",
                 ),
@@ -428,7 +451,7 @@ def build_queue_blocks(_, caption_html, chat_id, qid):
         types.InputRichBlockButtons(
             buttons=[
                 types.RichMessageButton(
-                    text=_["RICH_BTN_PLAYNOW"],
+                    text=_richify_custom_emojis(_["RICH_BTN_PLAYNOW"]),
                     style=enums.ButtonStyle.SUCCESS,
                     callback_data=f"ADMIN PlayNow|{chat_id}_{qid}",
                 ),
@@ -439,12 +462,12 @@ def build_queue_blocks(_, caption_html, chat_id, qid):
         types.InputRichBlockButtons(
             buttons=[
                 types.RichMessageButton(
-                    text=_["RICH_BTN_SKIP"],
+                    text=_richify_custom_emojis(_["RICH_BTN_SKIP"]),
                     style=enums.ButtonStyle.PRIMARY,
                     callback_data=f"ADMIN Skip|{chat_id}",
                 ),
                 types.RichMessageButton(
-                    text=_["RICH_BTN_END"],
+                    text=_richify_custom_emojis(_["RICH_BTN_END"]),
                     style=enums.ButtonStyle.DANGER,
                     callback_data=f"ADMIN Stop|{chat_id}",
                 ),
