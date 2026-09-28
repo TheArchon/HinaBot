@@ -168,7 +168,7 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             continue
 
         # Center the requester line and keep only the user name clickable.
-        if "tg://user?id=" in line or "Rᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line) or "𝐑ᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line):
+        if "tg://user?id=" in line or "Rᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line) or "Rᴇǫᴜᴇsᴛᴇᴅ" in re.sub(r"<[^>]+>", "", line):
             requester_line = _requester_rich_line(line, requester_button_style, requester_user_id)
             if requester_line is not None:
                 blocks.append(requester_line)
@@ -183,7 +183,7 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             center_next_song = False
             continue
 
-        if "Nᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line or "𝐍ᴏᴡ 𝐏ʟᴀʏɪɴɢ" in line:
+        if "Nᴏᴡ Pʟᴀʏɪɴɢ" in line or "Nᴏᴡ Pʟᴀʏɪɴɢ" in line:
             blocks.append(
                 types.InputRichBlockPullQuotation(text=_parse_inline(line))
             )
