@@ -1,6 +1,7 @@
 # YukiMusic/utils/inline/play.py
 import math
 
+from pyrogram.enums import ButtonStyle
 from pyrogram.types import InlineKeyboardButton
 
 from YukiMusic.utils.database import is_autoplay
@@ -73,12 +74,25 @@ def stream_markup_timer(_, chat_id, played, dur):
     return buttons
 
 
+AUTOPLAY_ENABLE_EMOJI = "6269163801178804220"
+AUTOPLAY_DISABLE_EMOJI = "6188193329662924600"
+
+
 def autoplay_markup(chat_id, mode: bool):
-    on_text = "✅ Enable" if mode else "Enable"
-    off_text = "❌ Disable" if not mode else "Disable"
+    """Two icon-only controls; callbacks are explicit and idempotent."""
     return [
-        InlineKeyboardButton(text=on_text, callback_data=f"autoplay on {chat_id}"),
-        InlineKeyboardButton(text=off_text, callback_data=f"autoplay off {chat_id}"),
+        InlineKeyboardButton(
+            text="⁣",
+            callback_data=f"autoplay on {chat_id}",
+            style=ButtonStyle.SUCCESS,
+            icon_custom_emoji_id=AUTOPLAY_ENABLE_EMOJI,
+        ),
+        InlineKeyboardButton(
+            text="⁣",
+            callback_data=f"autoplay off {chat_id}",
+            style=ButtonStyle.DANGER,
+            icon_custom_emoji_id=AUTOPLAY_DISABLE_EMOJI,
+        ),
     ]
 
 
