@@ -1,13 +1,16 @@
 from pyrogram import enums
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from config import SUPPORT_CHAT
+from config import SUPPORT_CHAT, SUPPORT_CHANNEL
 
 
 def botplaylist_markup(_):
     buttons = [
         [
             InlineKeyboardButton(text=_["S_B_9"], url=SUPPORT_CHAT),
+            InlineKeyboardButton(text="Cʜᴀɴɴᴇʟ", url=SUPPORT_CHANNEL),
+        ],
+        [
             InlineKeyboardButton(text=_["CLOSE_BUTTON"], callback_data="close"),
         ],
     ]
