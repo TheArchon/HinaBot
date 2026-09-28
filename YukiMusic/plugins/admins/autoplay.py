@@ -1,4 +1,6 @@
+
 # YukiMusic/plugins/admins/autoplay.py
+
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, Message
 
@@ -25,49 +27,91 @@ def _autoplay_command_text(mode: bool) -> str:
 async def autoplay_command(client, message: Message, _, chat_id):
     mode = await is_autoplay(chat_id)
     markup = InlineKeyboardMarkup([autoplay_markup(chat_id, mode)])
-    await message.reply_text(_autoplay_command_text(mode), reply_markup=markup)
+    await message.reply_text(
+        _autoplay_command_text(mode),
+        reply_markup=markup
+    )
 
 
-@yuki.on_callback_query(filters.regex(r"^autoplay (?:on|off) -?\d+$") & ~BANNED_USERS)
+@yuki.on_callback_query(
+    filters.regex(r"^autoplay (?:on|off) ") & ~BANNED_USERS
+)
 @ActualAdminCB
 async def autoplay_toggle(client, CallbackQuery, _):
-    _, action, raw_chat_id = CallbackQuery.data.split()
-    chat_id = int(raw_chat_id)
-    new_mode = action == "on"
+    _, action, chat_id = CallbackQuery.data.split()
+    chat_id = int(chat_id)
+    mode = await is_autoplay(chat_id)
 
-    if new_mode:
-        await autoplay_on(chat_id)
+    if action == "on":
+        if not mode:
+            await autoplay_on(chat_id)
+        new_mode = True
         toast = "Autoplay turned ON"
     else:
-        await autoplay_off(chat_id)
+        if mode:
+            await autoplay_off(chat_id)
+        new_mode = False
         toast = "Autoplay turned OFF"
 
     await CallbackQuery.answer(toast, show_alert=False)
 
     markup = CallbackQuery.message.reply_markup
+
     if markup:
         rows = []
+        autoplay_row_added = False
+
         for row in markup.inline_keyboard:
-            new_row = []
-            for button in row:
-                if button.callback_data and button.callback_data.startswith("autoplay "):
-                    new_row.extend(autoplay_markup(chat_id, new_mode))
-                else:
-                    new_row.append(button)
-            rows.append(new_row)
+            is_autoplay_row = any(
+                button.callback_data
+                and button.callback_data.startswith("autoplay ")
+                for button in row
+            )
+
+            if is_autoplay_row:
+                # Keep exactly one Autoplay row.
+                # Remove any duplicate Autoplay rows.
+                if not autoplay_row_added:
+                    rows.append(autoplay_markup(chat_id, new_mode))
+                    autoplay_row_added = True
+                continue
+
+            # Preserve all unrelated buttons.
+            rows.append(list(row))
+
+        # Add Autoplay buttons if they were missing.
+        if not autoplay_row_added:
+            rows.append(autoplay_markup(chat_id, new_mode))
+
         markup = InlineKeyboardMarkup(rows)
 
+    else:
+        markup = InlineKeyboardMarkup(
+            [autoplay_markup(chat_id, new_mode)]
+        )
+
     if CallbackQuery.message.photo:
-        base_caption = CallbackQuery.message.caption.html if CallbackQuery.message.caption else ""
-        new_caption = await with_autoplay_status(base_caption, chat_id)
+        base_caption = (
+            CallbackQuery.message.caption.html
+            if CallbackQuery.message.caption
+            else ""
+        )
+        new_caption = await with_autoplay_status(
+            base_caption, chat_id
+        )
+
         try:
-            await CallbackQuery.message.edit_caption(new_caption, reply_markup=markup)
+            await CallbackQuery.message.edit_caption(
+                new_caption,
+                reply_markup=markup
+            )
         except Exception:
             pass
     else:
         try:
             await CallbackQuery.message.edit_text(
-                _autoplay_command_text(new_mode), reply_markup=markup
+                _autoplay_command_text(new_mode),
+                reply_markup=markup
             )
         except Exception:
             pass
