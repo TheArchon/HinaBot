@@ -8,7 +8,7 @@ def botplaylist_markup(_):
     buttons = [
         [
             InlineKeyboardButton(
-                text=_["Cʜᴀᴛ"],
+                text="Cʜᴀᴛ",
                 url=SUPPORT_CHAT,
                 style=ButtonStyle.PRIMARY,
                 icon_custom_emoji_id="6021618194228187816",
@@ -48,17 +48,3 @@ def close_markup(_):
     return upl
 
 
-def supp_markup(_):
-    upl = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    text=_["S_B_9"],
-                    url=SUPPORT_CHAT,
-                    style=ButtonStyle.PRIMARY,
-                    icon_custom_emoji_id="6021618194228187816",
-                ),
-            ]
-        ]
-    )
-    return upl
