@@ -74,8 +74,8 @@ def stream_markup_timer(_, chat_id, played, dur):
     return buttons
 
 
-AUTOPLAY_ENABLE_EMOJI = "6273749318717412886"
-AUTOPLAY_DISABLE_EMOJI = "6188193329662924600"
+AUTOPLAY_ENABLE_EMOJI = "6237651574588445185"
+AUTOPLAY_DISABLE_EMOJI = "6237790860377854962"
 
 
 def autoplay_markup(chat_id, mode: bool):
