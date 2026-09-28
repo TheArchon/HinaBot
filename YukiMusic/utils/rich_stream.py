@@ -25,9 +25,6 @@ _CUSTOM_EMOJI = {
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
 
-# Messages successfully replaced/edited by the Rich Stream flow.
-_consumed = set()
-
 
 
 def _custom_emoji(emoji_id, alternative):
