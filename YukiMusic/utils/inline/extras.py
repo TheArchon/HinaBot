@@ -48,3 +48,17 @@ def close_markup(_):
     return upl
 
 
+def supp_markup(_):
+    upl = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    text="Cʜᴀᴛ",
+                    url=SUPPORT_CHAT,
+                    style=ButtonStyle.PRIMARY,
+                    icon_custom_emoji_id="6021618194228187816",
+                ),
+            ]
+        ]
+    )
+    return upl
