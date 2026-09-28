@@ -16,7 +16,7 @@ def botplaylist_markup(_):
             InlineKeyboardButton(
                 text="Nᴇᴡs",
                 url=SUPPORT_CHANNEL,
-                style=ButtonStyle.SUCCESS,
+                style=ButtonStyle.DANGER,
                 icon_custom_emoji_id="6039381989985882045",
             ),
         ],
@@ -24,7 +24,7 @@ def botplaylist_markup(_):
             InlineKeyboardButton(
                 text=_["CLOSE_BUTTON"],
                 callback_data="close",
-                style=ButtonStyle.DANGER,
+                style=ButtonStyle.SUCCESS,
                 icon_custom_emoji_id="6188193329662924600",
             ),
         ],
@@ -39,7 +39,7 @@ def close_markup(_):
                 InlineKeyboardButton(
                     text=_["CLOSE_BUTTON"],
                     callback_data="close",
-                    style=ButtonStyle.DANGER,
+                    style=ButtonStyle.SUCCESS,
                     icon_custom_emoji_id="6188193329662924600",
                 ),
             ]
