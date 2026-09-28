@@ -21,7 +21,7 @@ from YukiMusic.utils.database import (
     is_maintenance,
 )
 from YukiMusic.utils.inline import botplaylist_markup
-from config import PLAYLIST_IMG_URL, SUPPORT_CHAT, adminlist
+from config import SUPPORT_CHAT, adminlist
 from strings import get_string
 
 links = {}
@@ -72,9 +72,8 @@ def PlayWrapper(command):
                 if "stream" in message.command:
                     return await message.reply_text(_["str_1"])
                 buttons = botplaylist_markup(_)
-                return await message.reply_photo(
-                    photo=PLAYLIST_IMG_URL,
-                    caption=_["play_18"],
+                return await message.reply_text(
+                    _["play_18"],
                     reply_markup=InlineKeyboardMarkup(buttons),
                 )
         if message.command[0][0] == "c":
