@@ -311,7 +311,7 @@ def build_now_playing_blocks(
     blocks += _html_caption_to_blocks(
         caption_html,
         song_button_style=styles[4],
-        requester_button_style=enums.ButtonStyle.PRIMARY,
+        requester_button_style=enums.ButtonStyle.SUCCESS,
         requester_user_id=requester_user_id,
     )
     if played and dur:
