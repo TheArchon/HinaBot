@@ -27,10 +27,6 @@ _CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJ
 
 _consumed = set()
 
-# Keeps the original Rich blocks available during the short startup race
-# where stream.py sends the Rich message before the playback DB entry exists.
-_pending_np_blocks = {}
-
 
 def _richify_custom_emojis(value):
     """Convert normal now-playing emojis inside text into Telegram RichTextCustomEmoji."""
@@ -59,7 +55,6 @@ def _richify_custom_emojis(value):
     if pos < len(value):
         parts.append(value[pos:])
     return parts[0] if len(parts) == 1 else parts
-
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
 
@@ -414,28 +409,11 @@ async def send_now_playing_rich(
     client, chat_id, target_chat_id, photo, caption_html, replace=None
 ):
     _ = await _lang(chat_id)
-
-    # Build the card ONCE. These blocks contain the Premium Custom Emoji
-    # objects. Progress updates must reuse these blocks instead of rebuilding
-    # the caption from plain strings.
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
-
-    # Always keep a copy in the module cache. stream.py can call this before
-    # its DB entry is created, so relying only on db.get(chat_id) causes the
-    # progress updater to have nothing to edit.
-    _pending_np_blocks[chat_id] = list(blocks)
-
-    if db.get(chat_id):
-        db[chat_id][0]["np_blocks"] = list(blocks)
-
     msg = await _deliver(client, target_chat_id, blocks, replace)
-
     if db.get(chat_id):
         db[chat_id][0]["np_photo"] = photo
         db[chat_id][0]["np_caption"] = caption_html
-        db[chat_id][0]["mystic"] = msg
-        db[chat_id][0]["np_blocks"] = list(blocks)
-
     return msg
 
 
@@ -480,171 +458,32 @@ async def send_queue_rich(
 
 
 async def update_now_playing_progress(mystic, chat_id, played, dur, playing=True):
-    """Update the progress row on the existing Rich message.
-
-    IMPORTANT:
-    - Never delete/re-send the Now Playing message.
-    - Reuse the original cached Rich blocks so Premium Custom Emoji nodes
-      are not reconstructed from plain Unicode text.
-    """
     info = db.get(chat_id)
-    if not info or not mystic:
+    if not info:
         return None
-
     photo = info[0].get("np_photo")
     caption_html = info[0].get("np_caption")
     if not photo or not caption_html:
         return None
+    _ = await _lang(chat_id)
+    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
+    return await _edit_rich(mystic, blocks)
 
-    cached = info[0].get("np_blocks")
-    if cached:
-        blocks = list(cached)
-    else:
-        _ = await _lang(chat_id)
-        blocks = build_now_playing_blocks(
-            _, photo, caption_html, chat_id, None, None, playing
-        )
-
-    # Replace only the existing timer row.
-    progress_block = _progress_row(
-        played,
-        dur,
-        enums.ButtonStyle.DEFAULT,
-    )
-
-    new_blocks = []
-    replaced = False
-
-    for block in blocks:
-        if isinstance(block, types.InputRichBlockButtons):
-            buttons = getattr(block, "buttons", None) or []
-            if any(
-                getattr(button, "callback_data", None) == "GetTimer"
-                for button in buttons
-            ):
-                new_blocks.append(progress_block)
-                replaced = True
-                continue
-        new_blocks.append(block)
-
-    # First timer tick: insert the progress row immediately before the
-    # existing ADMIN control buttons.
-    if not replaced:
-        insert_at = len(new_blocks)
-        for index, block in enumerate(new_blocks):
-            if isinstance(block, types.InputRichBlockButtons):
-                buttons = getattr(block, "buttons", None) or []
-                if any(
-                    isinstance(getattr(button, "callback_data", None), str)
-                    and getattr(button, "callback_data", "").startswith("ADMIN ")
-                    for button in buttons
-                ):
-                    insert_at = index
-                    break
-        new_blocks.insert(insert_at, progress_block)
-
-    # Cache the exact Rich blocks used by the card. On the next tick these
-    # blocks are reused instead of rebuilding the caption/premium emojis.
-    info[0]["np_blocks"] = new_blocks
-
-    # CRITICAL: edit the existing message. Do NOT send a replacement message
-    # and do NOT delete the old Now Playing message.
-    try:
-        return await _edit_rich(mystic, new_blocks)
-    except Exception:
-        # Keep the active message reference intact. The next timer tick can
-        # retry against the same message.
-        return None
 
 async def set_now_playing_state(chat_id, playing):
     info = db.get(chat_id)
     if not info:
         return None
-
     mystic = info[0].get("mystic")
     photo = info[0].get("np_photo")
     caption_html = info[0].get("np_caption")
-
     if not mystic or not photo or not caption_html:
         return None
-
     played = seconds_to_min(info[0].get("played", 0)) or None
     dur = info[0].get("dur")
     _ = await _lang(chat_id)
-
-    cached = info[0].get("np_blocks")
-    if cached:
-        blocks = list(cached)
-    else:
-        blocks = build_now_playing_blocks(
-            _, photo, caption_html, chat_id, played, dur, playing
-        )
-
-    new_blocks = []
-    changed = False
-
-    for block in blocks:
-        if isinstance(block, types.InputRichBlockButtons):
-            buttons = getattr(block, "buttons", None) or []
-
-            if any(
-                getattr(button, "callback_data", None)
-                in (
-                    f"ADMIN Pause|{chat_id}",
-                    f"ADMIN Resume|{chat_id}",
-                )
-                for button in buttons
-            ):
-                styles = [
-                    getattr(button, "style", enums.ButtonStyle.DEFAULT)
-                    for button in buttons
-                ]
-
-                replay_style = styles[0] if len(styles) > 0 else enums.ButtonStyle.DEFAULT
-                toggle_style = styles[1] if len(styles) > 1 else enums.ButtonStyle.DEFAULT
-                skip_style = styles[2] if len(styles) > 2 else enums.ButtonStyle.DEFAULT
-
-                new_blocks.append(
-                    types.InputRichBlockButtons(
-                        buttons=[
-                            types.RichMessageButton(
-                                text=_["RICH_BTN_REPLAY"],
-                                style=replay_style,
-                                callback_data=f"ADMIN Replay|{chat_id}",
-                            ),
-                            types.RichMessageButton(
-                                text=(
-                                    _["RICH_BTN_PAUSE"]
-                                    if playing
-                                    else _["RICH_BTN_RESUME"]
-                                ),
-                                style=toggle_style,
-                                callback_data=(
-                                    f"ADMIN Pause|{chat_id}"
-                                    if playing
-                                    else f"ADMIN Resume|{chat_id}"
-                                ),
-                            ),
-                            types.RichMessageButton(
-                                text=_["RICH_BTN_SKIP"],
-                                style=skip_style,
-                                callback_data=f"ADMIN Skip|{chat_id}",
-                            ),
-                        ]
-                    )
-                )
-                changed = True
-                continue
-
-        new_blocks.append(block)
-
-    if not changed:
-        return None
-
-    info[0]["np_blocks"] = new_blocks
-
+    blocks = build_now_playing_blocks(_, photo, caption_html, chat_id, played, dur, playing)
     try:
-        return await _edit_rich(mystic, new_blocks)
+        return await _edit_rich(mystic, blocks)
     except Exception:
         return None
-
