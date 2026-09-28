@@ -1,3 +1,4 @@
+import asyncio
 import math
 import random
 import re
@@ -141,6 +142,40 @@ def _is_duration_line(line):
     """Detect the duration line so Telegram renders it centered."""
     plain = re.sub(r"<[^>]+>", "", line)
     return bool(re.search(r"d[ᴜu]rᴀtɪᴏɴ", plain, re.IGNORECASE))
+
+
+async def _attach_requester_link(caption_html, chat_id):
+    """Add a Telegram user link using the queued track's stored user_id.
+
+    The language string only contains the requester's display name, while the
+    queue already stores the corresponding numeric Telegram user id. Waiting
+    briefly here also covers the first-play race where the rich message is
+    scheduled just before the queue entry is inserted.
+    """
+    if "tg://user?id=" in caption_html:
+        return caption_html
+
+    for _ in range(20):
+        tracks = db.get(chat_id) or []
+        if tracks:
+            entry = tracks[0]
+            user_id = entry.get("user_id")
+            requester = entry.get("by")
+            if user_id and requester:
+                lines = caption_html.split("\n")
+                for index, line in enumerate(lines):
+                    plain = re.sub(r"<[^>]+>", "", line).strip()
+                    if "ǫᴜᴇsᴛᴇᴅ" in plain or "ʀᴇǫᴜᴇsᴛᴇᴅ" in plain:
+                        escaped_name = str(requester).replace("&", "&amp;")
+                        lines[index] = line.replace(
+                            str(requester),
+                            f'<a href="tg://user?id={user_id}">{escaped_name}</a>',
+                            1,
+                        )
+                        return "\n".join(lines)
+                break
+        await asyncio.sleep(0.05)
+    return caption_html
 
 
 def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
@@ -389,6 +424,7 @@ async def send_now_playing_rich(
     client, chat_id, target_chat_id, photo, caption_html, replace=None
 ):
     _ = await _lang(chat_id)
+    caption_html = await _attach_requester_link(caption_html, chat_id)
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
     msg = await _deliver(client, target_chat_id, blocks, replace)
     if db.get(chat_id):
