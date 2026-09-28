@@ -90,7 +90,7 @@ def autoplay_markup(chat_id, mode: bool):
         InlineKeyboardButton(
             text="⁣",
             callback_data=f"autoplay off {chat_id}",
-            style=ButtonStyle.PRIMARY,
+            style=ButtonStyle.DANGER,
             icon_custom_emoji_id=AUTOPLAY_DISABLE_EMOJI,
         ),
     ]
