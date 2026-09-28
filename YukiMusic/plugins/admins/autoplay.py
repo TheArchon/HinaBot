@@ -10,7 +10,7 @@ from config import BANNED_USERS
 def _autoplay_command_text(mode: bool) -> str:
     return (
         "<b>Aᴜᴛᴏᴘʟᴀʏ Cᴏɴᴛʀᴏʟ</b>\n\n"
-        "Wʜᴇɴ Aᴜᴛᴏᴘʟᴀʏ ɪs Eɴᴀʙʟᴇᴅ, ᴛʜᴇ Bᴏᴛ ᴡɪʟʟ\nAᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Pʟᴀʏ Rᴇᴄᴏᴍᴍᴇɴᴅᴇᴅ Sᴏɴɢs\nFʀᴏᴍ YᴏᴜTᴜʙᴇ Wʜᴇɴ Tʜᴇ Qᴜᴇᴜᴇ ɪs Eᴍᴘᴛʏ."
+        "Wʜᴇɴ Aᴜᴛᴏᴘʟᴀʏ ɪs Eɴᴀʙʟᴇᴅ, ᴛʜᴇ Bᴏᴛ ᴡɪʟʟ Aᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ Pʟᴀʏ Rᴇᴄᴏᴍᴍᴇɴᴅᴇᴅ Sᴏɴɢs Fʀᴏᴍ YᴏᴜTᴜʙᴇ Wʜᴇɴ Tʜᴇ Qᴜᴇᴜᴇ ɪs Eᴍᴘᴛʏ."
     )
 
 @yuki.on_message(filters.command(["autoplay"]) & filters.group & ~BANNED_USERS)
