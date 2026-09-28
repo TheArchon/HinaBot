@@ -9,128 +9,107 @@ from YukiMusic.utils.database import get_lang
 from YukiMusic.utils.formatters import seconds_to_min, time_to_seconds
 from strings import get_string
 
-_TAG_RE = re.compile(r"<(/?)(b|a)(?:\s+href=([^>]+))?>", re.IGNORECASE)
+_TAG_RE = re.compile(
+    r"<(/?)(b|a|tg-emoji)(?:\s+href=([^>]+)|\s+emoji-id=[\"']?([^\"' >]+)[\"']?)?>",
+    re.IGNORECASE,
+)
 
-# Premium Custom Emoji mapping for the six emojis used in the now-playing card.
-# The last two use the closest matching Premium emojis available in the supplied list:
-# 🎶 -> 🎵 and 🔊 -> 📢.
+# Premium Custom Emoji IDs supplied for the Rich Stream output.
+# The visible fallback character MUST match the custom emoji's Telegram alt emoji.
 _CUSTOM_EMOJI = {
-    "🎧": ("6082387600599944892", "🎧"),
-    "🎵": ("6100424015111787987", "🎵"),
-    "⏱": ("5267421370114914946", "⏱"),
-    "👤": ("5258362837411045098", "👤"),
-    "🎶": ("6100424015111787987", "🎵"),
-    "🔊": ("6039381989985882045", "📢"),
-    "📌": ("6100546468924364734", "📌"),
+    "5408995930416362034": "✨",
+    "5409025823388741707": "✨",
+    "5409029658794537988": "⏳",
+    "5408846628763217930": "👤",
 }
-_CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJI, key=len, reverse=True)))
-
-_consumed = set()
-_emoji_resolved = False
-
-
-async def _resolve_custom_emojis(client):
-    """Validate custom-emoji IDs and use Telegram's real emoji alt text.
-
-    Telegram ignores a custom-emoji entity when its wrapped text is not exactly
-    the emoji stored in the custom emoji document. We therefore ask Telegram
-    for the sticker metadata before constructing RichTextCustomEmoji objects.
-    """
-    global _emoji_resolved
-    if _emoji_resolved:
-        return
-
-    ids = []
-    for emoji_id, _alternative in _CUSTOM_EMOJI.values():
-        try:
-            ids.append(int(emoji_id))
-        except (TypeError, ValueError):
-            continue
-
-    if not ids or not hasattr(client, "get_custom_emoji_stickers"):
-        return
-
-    try:
-        stickers = await client.get_custom_emoji_stickers(ids)
-    except Exception:
-        return
-
-    by_id = {str(sticker.custom_emoji_id): sticker for sticker in stickers}
-    for emoji, (emoji_id, fallback) in list(_CUSTOM_EMOJI.items()):
-        sticker = by_id.get(str(emoji_id))
-        if sticker is None:
-            continue
-        actual_alt = getattr(sticker, "emoji", None) or fallback
-        _CUSTOM_EMOJI[emoji] = (str(emoji_id), actual_alt)
-
-    _emoji_resolved = True
-
-
-def _richify_custom_emojis(value):
-    """Convert normal now-playing emojis inside text into Telegram RichTextCustomEmoji."""
-    if not isinstance(value, str):
-        return value
-
-    matches = list(_CUSTOM_EMOJI_RE.finditer(value))
-    if not matches:
-        return value
-
-    parts = []
-    pos = 0
-    for match in matches:
-        if match.start() > pos:
-            parts.append(value[pos:match.start()])
-        emoji = match.group(0)
-        emoji_id, alternative = _CUSTOM_EMOJI[emoji]
-        parts.append(
-            types.RichTextCustomEmoji(
-                custom_emoji_id=emoji_id,
-                alternative_text=alternative,
-            )
-        )
-        pos = match.end()
-
-    if pos < len(value):
-        parts.append(value[pos:])
-    return parts[0] if len(parts) == 1 else parts
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
 
+
+
+def _custom_emoji(emoji_id, alternative):
+    """Build a Telegram RichTextCustomEmoji from an en.yml tg-emoji tag."""
+    # Keep the alternative exactly as written in en.yml. Telegram requires it
+    # to be one valid regular emoji corresponding to the custom emoji ID.
+    return types.RichTextCustomEmoji(
+        custom_emoji_id=str(emoji_id),
+        alternative_text=alternative,
+    )
+
+
+def _richify_custom_emojis(value):
+    """Convert <tg-emoji emoji-id=\"ID\">ALT</tg-emoji> into RichTextCustomEmoji."""
+    if not isinstance(value, str) or "<tg-emoji" not in value.lower():
+        return value
+
+    tag_re = re.compile(
+        r'<tg-emoji\s+emoji-id=["\']?([^"\' >]+)["\']?>(.*?)</tg-emoji>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    parts=[]; pos=0
+    for m in tag_re.finditer(value):
+        if m.start()>pos:
+            parts.append(value[pos:m.start()])
+        emoji_id=m.group(1)
+        alternative=re.sub(r"<[^>]+>", "", m.group(2)).strip()
+        if not alternative:
+            alternative=_CUSTOM_EMOJI.get(emoji_id, "✨")
+        parts.append(_custom_emoji(emoji_id, alternative))
+        pos=m.end()
+    if pos<len(value):
+        parts.append(value[pos:])
+    if not parts:
+        return value
+    return parts[0] if len(parts)==1 else parts
 
 async def _lang(chat_id):
     return get_string(await get_lang(chat_id))
 
 
 def _parse_inline(segment):
-    parts = []
-    stack = []
-    pos = 0
+    """Parse the small HTML subset used by the Rich Stream language strings.
 
-    for m in _TAG_RE.finditer(segment):
-        if m.start() > pos:
-            parts.append(_richify_custom_emojis(segment[pos : m.start()]))
-        pos = m.end()
-
-        closing, tag, href = m.group(1), m.group(2).lower(), m.group(3)
-
+    In particular, <tg-emoji emoji-id="...">✨</tg-emoji> is converted to a
+    real RichTextCustomEmoji instead of being left as plain text.
+    """
+    token_re = re.compile(
+        r'<(/?)(b|a|tg-emoji)(?:\s+href=([^>]+)|\s+emoji-id=["\']?([^"\' >]+)["\']?)?>',
+        re.IGNORECASE,
+    )
+    parts=[]
+    stack=[]
+    pos=0
+    for m in token_re.finditer(segment):
+        if m.start()>pos:
+            parts.append(_richify_custom_emojis(segment[pos:m.start()]))
+        closing=m.group(1)
+        tag=m.group(2).lower()
+        href=m.group(3)
+        emoji_id=m.group(4)
+        pos=m.end()
         if not closing:
-            stack.append((tag, href.strip("\"'") if href else None, len(parts)))
-        elif stack and stack[-1][0] == tag:
-            open_tag, url, start = stack.pop()
-            inner = parts[start:]
-            del parts[start:]
-            inner = inner[0] if len(inner) == 1 else inner if inner else ""
-            if open_tag == "b":
-                parts.append(types.RichTextBold(text=inner))
-            else:
-                parts.append(types.RichTextUrl(text=inner, url=url))
-
-    if pos < len(segment):
+            stack.append((tag, href.strip("\"'") if href else None, emoji_id, len(parts)))
+            continue
+        if not stack or stack[-1][0] != tag:
+            parts.append(segment[m.start():m.end()])
+            continue
+        open_tag,url,opened_id,start=stack.pop()
+        inner=parts[start:]
+        del parts[start:]
+        inner=inner[0] if len(inner)==1 else (inner if inner else "")
+        if open_tag=="b":
+            parts.append(types.RichTextBold(text=inner))
+        elif open_tag=="a":
+            parts.append(types.RichTextUrl(text=inner,url=url))
+        else:
+            # For custom emoji the inner text is the required alternative emoji.
+            alt=inner if isinstance(inner,str) else "✨"
+            parts.append(_custom_emoji(opened_id, alt))
+    if pos<len(segment):
         parts.append(_richify_custom_emojis(segment[pos:]))
-
     if not parts:
         return ""
-    return parts[0] if len(parts) == 1 else parts
+    return parts[0] if len(parts)==1 else parts
 
 
 def _balance_lines(caption_html):
@@ -447,7 +426,6 @@ async def send_now_playing_rich(
     client, chat_id, target_chat_id, photo, caption_html, replace=None
 ):
     _ = await _lang(chat_id)
-    await _resolve_custom_emojis(client)
     blocks = build_now_playing_blocks(_, photo, caption_html, chat_id)
     msg = await _deliver(client, target_chat_id, blocks, replace)
     if db.get(chat_id):
@@ -492,7 +470,6 @@ async def send_queue_rich(
     client, chat_id, target_chat_id, caption_html, qid, replace=None
 ):
     _ = await _lang(chat_id)
-    await _resolve_custom_emojis(client)
     blocks = build_queue_blocks(_, caption_html, chat_id, qid)
     return await _deliver(client, target_chat_id, blocks, replace)
 
