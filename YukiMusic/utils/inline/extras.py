@@ -25,7 +25,7 @@ def botplaylist_markup(_):
                 text=_["CLOSE_BUTTON"],
                 callback_data="close",
                 style=ButtonStyle.DANGER,
-                icon_custom_emoji_id="6269316311172518259",
+                icon_custom_emoji_id="6188193329662924600",
             ),
         ],
     ]
@@ -40,7 +40,7 @@ def close_markup(_):
                     text=_["CLOSE_BUTTON"],
                     callback_data="close",
                     style=ButtonStyle.DANGER,
-                    icon_custom_emoji_id="6269316311172518259",
+                    icon_custom_emoji_id="6188193329662924600",
                 ),
             ]
         ]
