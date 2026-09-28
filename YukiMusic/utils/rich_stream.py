@@ -103,8 +103,8 @@ def _song_rich_button(line, style):
     )
 
 
-def _requester_rich_button(line, style):
-    """Turn only the requester name into a centered clickable button."""
+def _requester_rich_text(line, style):
+    """Build a centered requester line with only the username as a clickable button."""
     match = re.search(
         r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
         line,
@@ -118,24 +118,29 @@ def _requester_rich_button(line, style):
     if not name:
         return None
 
-    return types.InputRichBlockButtons(
-        buttons=[
-            types.RichMessageButton(
-                text=f"👤 {name}",
-                style=style,
-                url=url,
-            )
-        ],
-        align="center",
+    button = types.RichTextButton(
+        button=types.RichMessageButton(
+            text=f"👤 {name}",
+            style=style,
+            url=url,
+        )
     )
 
+    prefix = re.sub(r"<a\s+href=.*?</a>", "", line, flags=re.IGNORECASE | re.DOTALL)
+    prefix = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", prefix)).strip()
+    if not prefix:
+        prefix = "Requested By :"
 
-def _center_visual_text(text):
-    """Visually center short paragraph text using Unicode em-spaces."""
+    clean_len = len(prefix) + len(name) + 4
+    padding = max(1, min(12, 14 - clean_len // 9))
+    return ["\u2003" * padding + prefix + "  ", button]
+
+
+def _center_paragraph(text):
     clean = re.sub(r"<[^>]+>", "", text).strip()
     if not clean:
         return text
-    padding = max(1, min(12, 12 - len(clean) // 10))
+    padding = max(1, min(12, 14 - len(clean) // 9))
     return "\u2003" * padding + text
 
 
@@ -150,28 +155,18 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
         requester_button_style = random.choice(_BUTTON_STYLES)
 
     for line in lines:
-        # Center the duration line visually.
         if re.search(r"D(?:ᴜ|u)ʀᴀᴛɪᴏɴ\s*[·:]", line, re.IGNORECASE):
             blocks.append(
                 types.InputRichBlockParagraph(
-                    text=_parse_inline(_center_visual_text(line))
+                    text=_parse_inline(_center_paragraph(line))
                 )
             )
             continue
 
-        # Keep "Requested By" centered as text and make only the user name a button.
         if "tg://user?id=" in line:
-            requester_button = _requester_rich_button(line, requester_button_style)
-            if requester_button is not None:
-                before = line.split("<a", 1)[0].strip()
-                before = re.sub(r"[.:：\-–—]+\s*$", "", before).strip()
-                if before:
-                    blocks.append(
-                        types.InputRichBlockParagraph(
-                            text=_parse_inline(_center_visual_text(before))
-                        )
-                    )
-                blocks.append(requester_button)
+            requester = _requester_rich_text(line, requester_button_style)
+            if requester is not None:
+                blocks.append(types.InputRichBlockParagraph(text=requester))
                 continue
 
         if center_next_song and line.strip():
@@ -192,7 +187,6 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             blocks.append(types.InputRichBlockParagraph(text=_parse_inline(line)))
 
     return blocks
-
 
 def _progress_line(played, dur):
     played_sec = time_to_seconds(played)
