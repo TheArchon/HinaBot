@@ -11,17 +11,18 @@ from strings import get_string
 
 _TAG_RE = re.compile(r"<(/?)(b|a)(?:\s+href=([^>]+))?>", re.IGNORECASE)
 
-# Premium Custom Emoji mapping for the six emojis used in the now-playing card.
-# The last two use the closest matching Premium emojis available in the supplied list:
-# 🎶 -> 🎵 and 🔊 -> 📢.
+# Premium Custom Emoji mapping used by the Rich Stream / Now Playing output.
+# Keep the normal emoji as the fallback so Telegram can still display the label
+# when the custom emoji cannot be rendered.
 _CUSTOM_EMOJI = {
     "🎧": ("6082387600599944892", "🎧"),
     "🎵": ("6100424015111787987", "🎵"),
+    "🎶": ("6100424015111787987", "🎵"),
     "⏱": ("5267421370114914946", "⏱"),
     "👤": ("5258362837411045098", "👤"),
-    "🎶": ("6100424015111787987", "🎵"),
     "🔊": ("6039381989985882045", "📢"),
     "📌": ("6100546468924364734", "📌"),
+    "✕": ("6269316311172518259", "❌"),
 }
 _CUSTOM_EMOJI_RE = re.compile("|".join(re.escape(x) for x in sorted(_CUSTOM_EMOJI, key=len, reverse=True)))
 
@@ -29,7 +30,7 @@ _consumed = set()
 
 
 def _richify_custom_emojis(value):
-    """Convert normal now-playing emojis inside text into Telegram RichTextCustomEmoji."""
+    """Replace supported Unicode emojis with Telegram RichTextCustomEmoji nodes."""
     if not isinstance(value, str):
         return value
 
@@ -42,11 +43,12 @@ def _richify_custom_emojis(value):
     for match in matches:
         if match.start() > pos:
             parts.append(value[pos:match.start()])
+
         emoji = match.group(0)
         emoji_id, alternative = _CUSTOM_EMOJI[emoji]
         parts.append(
             types.RichTextCustomEmoji(
-                custom_emoji_id=emoji_id,
+                custom_emoji_id=str(emoji_id),
                 alternative_text=alternative,
             )
         )
@@ -54,6 +56,9 @@ def _richify_custom_emojis(value):
 
     if pos < len(value):
         parts.append(value[pos:])
+
+    # RichMessageButton.text and paragraph text both accept RichText.  Returning
+    # a node for a single emoji and a list for mixed text keeps both cases valid.
     return parts[0] if len(parts) == 1 else parts
 
 _FORBIDDEN = (errors.ChatSendPhotosForbidden, errors.ChatSendMediaForbidden)
