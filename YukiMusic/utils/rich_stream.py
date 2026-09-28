@@ -103,18 +103,46 @@ def _song_rich_button(line, style):
     )
 
 
-def _requester_rich_line(line, style):
-    """Center Requested By and make only the user name clickable."""
+def _requester_rich_line(line, style, requester_user_id=None):
+    """Center Requested By without a quotation block.
+
+    The requester name is made clickable from the existing queue user_id.
+    This also works when the language string contains only the plain name.
+    """
     match = re.search(
-        r"<a\s+href=(?:\"|')?(tg://user\?id=\d+)(?:\"|')?>(.*?)</a>",
+        r"<a\s+href=(?:\"|\')?(tg://user\?id=\d+)(?:\"|\')?>(.*?)</a>",
         line,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    if not match:
-        return None
 
-    url = match.group(1)
-    name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    if match:
+        url = match.group(1)
+        name = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+        label = re.sub(
+            r"<a\s+href=(?:\"|\')?tg://user\?id=\d+(?:\"|\')?>(.*?)</a>",
+            "",
+            line,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    elif requester_user_id:
+        # The stock en.yml contains only {3} as a plain requester name.
+        # Build the Telegram user link here from the queue's stored user_id.
+        url = f"tg://user?id={requester_user_id}"
+        plain = re.sub(r"<[^>]+>", "", line)
+        m = re.search(r"(.*?ǫᴜᴇsᴛᴇᴅ\s*[bʙ]ʏ\s*:?\s*)(.*)$", plain, re.I)
+        if not m:
+            return None
+        label = plain[:m.start(1)].rstrip()
+        name = m.group(1).strip()
+    else:
+        # Autoplay/other callers may not have a real requester id.
+        plain = re.sub(r"<[^>]+>", "", line).strip()
+        return types.InputRichBlockTable(
+            cells=[[types.InputRichBlockTableCell(text=plain, align="center")]],
+            is_bordered=False,
+            is_compact=True,
+        )
+
     if not name:
         return None
 
@@ -125,17 +153,20 @@ def _requester_rich_line(line, style):
             url=url,
         )
     )
-    label = re.sub(
-        r"<a\s+href=(?:\"|')?tg://user\?id=\d+(?:\"|')?>(.*?)</a>",
-        "",
-        line,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    label = re.sub(r"<[^>]+>", "", label).strip()
-    return types.InputRichBlockPullQuotation(
-        text=[label + " ", user_button]
-    )
 
+    label = re.sub(r"<[^>]+>", "", label).strip()
+    return types.InputRichBlockTable(
+        cells=[
+            [
+                types.InputRichBlockTableCell(
+                    text=[label + " ", user_button],
+                    align="center",
+                )
+            ]
+        ],
+        is_bordered=False,
+        is_compact=True,
+    )
 
 def _is_duration_line(line):
     """Detect all duration label variants used by the language files."""
@@ -149,7 +180,11 @@ def _is_duration_line(line):
     )
 
 
-def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None):
+def _is_requester_line(line):
+    plain = re.sub(r"<[^>]+>", "", line).lower()
+    return "ǫᴜᴇsᴛᴇᴅ" in plain and ("ʙʏ" in plain or "bʏ" in plain)
+
+def _html_caption_to_blocks(caption_html, song_button_style=None, requester_button_style=None, requester_user_id=None):
     lines = _balance_lines(caption_html)
     blocks = []
     center_next_song = False
@@ -167,9 +202,12 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             )
             continue
 
-        # Center the requester line and keep only the user name clickable.
-        if "tg://user?id=" in line:
-            requester_line = _requester_rich_line(line, requester_button_style)
+        # Center Requested By without turning the whole line into a quote.
+        plain_line = re.sub(r"<[^>]+>", "", line)
+        if ("tg://user?id=" in line or _is_requester_line(plain_line)):
+            requester_line = _requester_rich_line(
+                line, requester_button_style, requester_user_id=requester_user_id
+            )
             if requester_line is not None:
                 blocks.append(requester_line)
                 continue
@@ -302,10 +340,16 @@ def build_now_playing_blocks(
 ):
     blocks = [types.InputRichBlockPhoto(photo=types.InputMediaPhoto(photo))]
     styles = _random_styles()
+    requester_user_id = None
+    queue = db.get(chat_id)
+    if queue:
+        requester_user_id = queue[0].get("user_id")
+
     blocks += _html_caption_to_blocks(
         caption_html,
         song_button_style=styles[4],
         requester_button_style=enums.ButtonStyle.DANGER,
+        requester_user_id=requester_user_id,
     )
     if played and dur:
         blocks.append(_progress_row(played, dur, styles[4]))
