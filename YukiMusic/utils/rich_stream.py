@@ -145,7 +145,7 @@ def _requester_rich_line(line, style, requester_user_id=None):
     else:
         # No requester ID (for example autoplay): keep the line centered.
         return types.InputRichBlockTable(
-            cells=[[types.InputRichBlockTableCell(text=plain, align="center")]],
+            cells=[[types.RichBlockTableCell(text=plain, align="center")]],
             is_bordered=False,
             is_compact=True,
         )
@@ -163,7 +163,7 @@ def _requester_rich_line(line, style, requester_user_id=None):
 
     return types.InputRichBlockTable(
         cells=[[
-            types.InputRichBlockTableCell(
+            types.RichBlockTableCell(
                 text=[label + " ", user_button],
                 align="center",
             )
@@ -204,7 +204,7 @@ def _html_caption_to_blocks(caption_html, song_button_style=None, requester_butt
             blocks.append(
                 types.InputRichBlockTable(
                     cells=[[
-                        types.InputRichBlockTableCell(
+                        types.RichBlockTableCell(
                             text=_parse_inline(line),
                             align="center",
                         )
