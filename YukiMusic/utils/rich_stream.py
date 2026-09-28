@@ -90,7 +90,7 @@ def _song_rich_button(line, style):
     if not url or not title:
         return None
 
-    button_text = f"  🎵 {title} 🎵  "
+    button_text = f"  {title}  "
     return types.InputRichBlockButtons(
         buttons=[
             types.RichMessageButton(
@@ -127,7 +127,7 @@ def _requester_rich_line(line, style, requester_user_id=None):
 
     user_button = types.RichTextButton(
         button=types.RichMessageButton(
-            text=f"👤 {name}",
+            text=f" {name}",
             style=style,
             url=url,
         )
