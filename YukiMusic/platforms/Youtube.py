@@ -2,6 +2,7 @@ import asyncio
 import os
 import re
 from typing import Union
+from urllib.parse import parse_qs, urlparse
 import yt_dlp
 from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
@@ -52,13 +53,71 @@ def _find_external(directory: str, video_id: str, extensions, resp=None):
     return None
 
 
+def _youtube_video_id(link: str):
+    """Return the exact YouTube video ID from common YouTube URL forms."""
+    if not link:
+        return None
+    value = str(link).strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
+        return value
+    try:
+        parsed = urlparse(value)
+        host = parsed.netloc.lower().split(":", 1)[0]
+        path_parts = [part for part in parsed.path.split("/") if part]
+        if host in {"youtu.be", "www.youtu.be"} and path_parts:
+            candidate = path_parts[0]
+        elif "youtube.com" in host or host.endswith("youtube-nocookie.com"):
+            query_id = parse_qs(parsed.query).get("v", [None])[0]
+            if query_id:
+                candidate = query_id
+            elif path_parts and path_parts[0] in {"shorts", "embed", "v", "live"} and len(path_parts) > 1:
+                candidate = path_parts[1]
+            else:
+                candidate = None
+        else:
+            candidate = None
+        if candidate and re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate):
+            return candidate
+    except Exception:
+        pass
+    return None
+
+
+def _youtube_watch_url(link: str):
+    video_id = _youtube_video_id(link)
+    return f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+
+
+def seconds_to_duration(seconds):
+    seconds = int(seconds or 0)
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def _direct_youtube_info(link: str):
+    """Extract metadata for the exact supplied YouTube video, never a search result."""
+    watch_url = _youtube_watch_url(link)
+    if not watch_url:
+        return None
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        return ydl.extract_info(watch_url, download=False)
+
+
 def time_to_seconds(time):
     stringt = str(time)
     return sum(int(x) * 60 ** i for i, x in enumerate(reversed(stringt.split(":"))))
 
 
 async def _download_media(link: str, kind: str, timeout: int) -> str:
-    video_id = link.split("v=")[-1].split("&")[0] if "v=" in link else link
+    video_id = _youtube_video_id(link) or link
     if not video_id or len(video_id) < 3:
         return None
 
@@ -123,7 +182,7 @@ async def get_autoplay(
     timeout: int = AUTOPLAY_REQUEST_TIMEOUT,
     retries: int = AUTOPLAY_MAX_RETRIES,
 ) -> list:
-    video_id = video_id.split("v=")[-1].split("&")[0] if "v=" in video_id else video_id
+    video_id = _youtube_video_id(video_id) or video_id
     if not video_id or len(video_id) < 3:
         return []
 
@@ -187,8 +246,23 @@ class YouTubeAPI:
     async def details(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
             link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
+
+        video_id = _youtube_video_id(link)
+        if video_id:
+            try:
+                info = await asyncio.to_thread(_direct_youtube_info, link)
+                title = info.get("title") or video_id
+                duration_sec = int(info.get("duration") or 0)
+                duration_min = info.get("duration_string") or (
+                    seconds_to_duration(duration_sec) if duration_sec else None
+                )
+                thumbnail = info.get("thumbnail") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                return title, duration_min, duration_sec, thumbnail, video_id
+            except Exception:
+                # Do not turn a direct URL into a search query. If exact extraction
+                # fails, let the caller handle the failure instead of playing another video.
+                raise
+
         results = VideosSearch(link, limit=1)
         for result in (await results.next())["result"]:
             title = result["title"]
@@ -196,13 +270,16 @@ class YouTubeAPI:
             thumbnail = result["thumbnails"][0]["url"].split("?")[0]
             vidid = result["id"]
             duration_sec = int(time_to_seconds(duration_min)) if duration_min else 0
-        return title, duration_min, duration_sec, thumbnail, vidid
+            return title, duration_min, duration_sec, thumbnail, vidid
+        raise ValueError("No YouTube result found")
 
     async def title(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
             link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
+        video_id = _youtube_video_id(link)
+        if video_id:
+            info = await asyncio.to_thread(_direct_youtube_info, link)
+            return info.get("title")
         results = VideosSearch(link, limit=1)
         for result in (await results.next())["result"]:
             return result["title"]
@@ -210,8 +287,11 @@ class YouTubeAPI:
     async def duration(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
             link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
+        video_id = _youtube_video_id(link)
+        if video_id:
+            info = await asyncio.to_thread(_direct_youtube_info, link)
+            duration = info.get("duration")
+            return info.get("duration_string") or (seconds_to_duration(duration) if duration else None)
         results = VideosSearch(link, limit=1)
         for result in (await results.next())["result"]:
             return result["duration"]
@@ -219,8 +299,10 @@ class YouTubeAPI:
     async def thumbnail(self, link: str, videoid: Union[bool, str] = None):
         if videoid:
             link = self.base + link
-        if "&" in link:
-            link = link.split("&")[0]
+        video_id = _youtube_video_id(link)
+        if video_id:
+            info = await asyncio.to_thread(_direct_youtube_info, link)
+            return info.get("thumbnail") or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
         results = VideosSearch(link, limit=1)
         for result in (await results.next())["result"]:
             return result["thumbnails"][0]["url"].split("?")[0]
