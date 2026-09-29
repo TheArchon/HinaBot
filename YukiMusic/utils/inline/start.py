@@ -68,6 +68,7 @@ def private_panel(_):
             ),
             InlineKeyboardButton(
                 text=_["S_B_2"],
+                icon_custom_emoji_id="4956475826762679249",
                 url=config.SUPPORT_CHAT,
                 style=s[3],
             ),
