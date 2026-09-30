@@ -51,7 +51,7 @@ def build_runtime_stats_blocks(system, process, cpu_percent, process_cpu, chats,
         _paragraph(f"<b>• RAM Usᴀɢᴇ:</b> {_mib(app_mem):.2f} MiB"),
         _paragraph(f"<b>• PɪD:</b> {process.pid}"),
         _heading("Dᴀᴛᴀʙᴀsᴇ"),
-        _paragraph(f"<b>• Cʜᴀᴛs:</b> {chats}"),
+        _paragraph(f"**• Cʜᴀᴛs:** {chats}"),
         _paragraph(f"<b>• Usᴇʀs:</b> {users}"),
         _paragraph("────────────────────────"),
         types.InputRichBlockButtons(
