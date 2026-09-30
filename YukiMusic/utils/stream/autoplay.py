@@ -24,8 +24,9 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _cache = {}
 
 
-def _new_entry(source_id, carry=None, video=False, failed=None):
+def _new_entry(source_id, carry=None, video=False, failed=None, language=None):
     return {
+        "language": language,
         "source_id": source_id,
         "video": video,
         "tracks": [],
@@ -66,6 +67,25 @@ def discard_prefetch(chat_id):
     entry = _cache.pop(chat_id, None)
     if entry:
         _discard_entry(entry)
+
+
+def _detect_language(title):
+    text = str(title or "").lower()
+    if re.search(r"[\u0900-\u097f]", text):
+        return "hindi"
+    bhojpuri = ("bhojpuri", "भोजपुरी", "pawan singh", "khesari", "shilpi raj", "rakesh mishra", "arvind akela", "नीलकमल")
+    hindi = ("hindi", "bollywood", "arijit", "shreya", "jubin", "sonu nigam", "atif aslam")
+    if any(word in text for word in bhojpuri):
+        return "bhojpuri"
+    if any(word in text for word in hindi):
+        return "hindi"
+    return None
+
+
+def _matches_language(track, language):
+    if not language:
+        return True
+    return _detect_language(track.get("title")) == language
 
 
 def _clean(chat_id, entry, tracks):
@@ -117,6 +137,7 @@ async def _fetch_tracks(chat_id, entry):
         )
     except Exception:
         fresh = []
+    fresh = [track for track in fresh or [] if _matches_language(track, entry.get("language"))]
     tracks = _clean(chat_id, entry, fresh)
     if not tracks:
         tracks = _clean(chat_id, entry, entry["carry"])
@@ -148,6 +169,7 @@ async def schedule_prefetch(chat_id, playing):
     if item.get("played", 0) < PREFETCH_AFTER:
         return
     source_id = item.get("vidid")
+    language = _detect_language(item.get("title"))
     if not _is_youtube_id(source_id):
         return
     queued = str(item.get("file"))
@@ -162,7 +184,7 @@ async def schedule_prefetch(chat_id, playing):
     if entry:
         _discard_entry(entry)
     video = str(item.get("streamtype")) == "video"
-    fresh = _new_entry(source_id, carry, video)
+    fresh = _new_entry(source_id, carry, video, language=language)
     _cache[chat_id] = fresh
     fresh["task"] = asyncio.ensure_future(_prefetch(chat_id, fresh))
 
@@ -175,6 +197,7 @@ async def try_autoplay(chat_id, popped) -> bool:
         return False
 
     source_id = popped.get("vidid")
+    language = _detect_language(popped.get("title"))
     if not source_id or source_id in ("telegram", "soundcloud"):
         return False
 
@@ -207,7 +230,7 @@ async def try_autoplay(chat_id, popped) -> bool:
 
     if not picked:
         same_source = bool(entry) and entry["source_id"] == source_id
-        entry = _new_entry(source_id, leftover, video, failed)
+        entry = _new_entry(source_id, leftover, video, failed, language)
         _cache[chat_id] = entry
         if same_source:
             entry["tracks"] = _clean(chat_id, entry, leftover)
