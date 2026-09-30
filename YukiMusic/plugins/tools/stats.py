@@ -3,57 +3,92 @@ import time
 from datetime import timedelta
 
 import psutil
-from pyrogram import filters
+from pyrogram import enums, filters, types
 from pyrogram.types import Message
 
-import config
 from YukiMusic import yuki
-from YukiMusic.misc import SUDOERS
 from YukiMusic.utils.database import get_served_chats, get_served_users
 from YukiMusic.utils.decorators.language import language
-from YukiMusic.utils.inline.stats import stats_buttons
 from config import BANNED_USERS
+
+
+def _gib(value):
+    return value / (1024 ** 3)
+
+
+def _mib(value):
+    return value / (1024 ** 2)
+
+
+def _paragraph(text):
+    return types.InputRichBlockParagraph(text=text)
+
+
+def _heading(text):
+    return types.InputRichBlockPullQuotation(
+        text=[types.RichTextBold(text=text)]
+    )
+
+
+def build_runtime_stats_blocks(system, process, cpu_percent, process_cpu, chats, users):
+    virtual = system["virtual"]
+    disk = system["disk"]
+    uptime = str(timedelta(seconds=max(0, int(time.time() - process.create_time()))))
+    app_mem = process.memory_info().rss
+    cores = psutil.cpu_count(logical=True) or 1
+
+    blocks = [
+        _paragraph([types.RichTextBold(text="YukiMusic — Runtime Status")]),
+        _paragraph("────────────────────────"),
+        _heading("System"),
+        _paragraph(f"• CPU usage: {cpu_percent:.2f}% ({cores} cores)"),
+        _paragraph(f"• RAM usage: {_gib(virtual.used):.2f} GiB | {_gib(virtual.total):.2f} GiB"),
+        _paragraph(f"• Storage: {_gib(disk.used):.2f} GiB | {_gib(disk.total):.2f} GiB"),
+        _paragraph("────────────────────────"),
+        _heading("Application"),
+        _paragraph(f"• Uptime: {uptime}"),
+        _paragraph(f"• Threads: {process.num_threads()}"),
+        _paragraph(f"• Python: {platform.python_version()}"),
+        _paragraph(f"• CPU usage: {process_cpu:.2f}%"),
+        _paragraph(f"• RAM usage: {_mib(app_mem):.2f} MiB"),
+        _paragraph(f"• PID: {process.pid}"),
+        _paragraph("────────────────────────"),
+        _heading("Database"),
+        _paragraph(f"• Chats: {chats}"),
+        _paragraph(f"• Users: {users}"),
+        _paragraph("────────────────────────"),
+        types.InputRichBlockButtons(
+            buttons=[
+                types.RichMessageButton(
+                    text="✕ Close",
+                    style=enums.ButtonStyle.DANGER,
+                    callback_data="close",
+                )
+            ],
+            align="center",
+        ),
+    ]
+    return blocks
 
 
 @yuki.on_message(filters.command(["stats", "gstats"]) & filters.group & ~BANNED_USERS)
 @language
 async def stats_global(client, message: Message, _):
-    await send_runtime_stats(message, _)
-
-
-async def send_runtime_stats(message, _):
     process = psutil.Process()
     virtual = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
-    cpu_count = psutil.cpu_count(logical=True) or 1
     cpu_percent = psutil.cpu_percent(interval=0.2)
     process_cpu = process.cpu_percent(interval=None)
-    process_mem = process.memory_info().rss
-    started = time.time() - process.create_time()
-    uptime = str(timedelta(seconds=max(0, int(started))))
     chats = len(await get_served_chats())
     users = len(await get_served_users())
-    def gib(value):
-        return value / (1024 ** 3)
-    def mib(value):
-        return value / (1024 ** 2)
-    text = (
-        f"<b>{yuki.mention} — Runtime Status</b>\n"
-        "<code>────────────────────────</code>\n\n"
-        "<b>System</b>\n"
-        f"• CPU usage: {cpu_percent:.2f}% ({cpu_count} cores)\n"
-        f"• RAM usage: {gib(virtual.used):.2f} GiB | {gib(virtual.total):.2f} GiB\n"
-        f"• Storage: {gib(disk.used):.2f} GiB | {gib(disk.total):.2f} GiB\n\n"
-        "<b>Application</b>\n"
-        f"• Uptime: {uptime}\n"
-        f"• Threads: {process.num_threads()}\n"
-        f"• Python: {platform.python_version()}\n"
-        f"• CPU usage: {process_cpu:.2f}%\n"
-        f"• RAM usage: {mib(process_mem):.2f} MiB\n"
-        f"• PID: {process.pid}\n\n"
-        "<b>Database</b>\n"
-        f"• Chats: {chats}\n"
-        f"• Users: {users}\n\n"
-        "<code>────────────────────────</code>"
+
+    blocks = build_runtime_stats_blocks(
+        {"virtual": virtual, "disk": disk},
+        process,
+        cpu_percent,
+        process_cpu,
+        chats,
+        users,
     )
-    await message.reply_text(text, reply_markup=stats_buttons(_), disable_web_page_preview=True)
+    rich_message = types.InputRichMessage(blocks=blocks)
+    await client.send_rich_message(message.chat.id, rich_message=rich_message)
