@@ -1,68 +1,82 @@
-from datetime import datetime
-
-from pyrogram import filters
+import time
+from datetime import timedelta
+from pyrogram import enums, filters, types
 from pyrogram.types import Message
-
 from YukiMusic import yuki
 from YukiMusic.core.call import Shruti
 from YukiMusic.utils import bot_sys_stats
 from YukiMusic.utils.decorators.language import language
-from YukiMusic.utils.inline import supp_markup
 from config import BANNED_USERS
 
+def _paragraph(text):
+    return types.InputRichBlockParagraph(text=text)
 
-PING = {
-    "ping": "6237864166879663987",
-    "speed": "6100220081474639964",
-    "telegram": "6170199997968029712",
-    "uptime": "6111900129071994354",
-    "cpu": "6327577808830732115",
-    "ram": "6328014765918525185",
-    "disk": "5258337316715373336",
-    "status": "6113685078825505075",
-    "rocket": "6172332822892647766",
-}
+def _heading(text):
+    return types.InputRichBlockPullQuotation(
+        text=types.RichTextBold(text=text)
+    )
 
+def _bold_paragraph(label, value):
+    return types.InputRichBlockParagraph(
+        text=[
+            types.RichTextBold(text=label),
+            value,
+        ]
+    )
 
-def ping_text(ping, tg_ping, uptime, cpu, ram, disk):
-    return f"""
-<tg-emoji emoji-id="{PING["ping"]}">🏓</tg-emoji> <b>ʀɪᴄʜ ᴘɪɴɢ</b>
+def _format_uptime(value):
+    if isinstance(value, (int, float)):
+        return str(timedelta(seconds=max(0, int(value))))
+    return str(value)
 
-<tg-emoji emoji-id="{PING["speed"]}">⚡️</tg-emoji> <b>ʀᴇsᴘᴏɴsᴇ</b>  : <code>{ping:.2f} ms</code>
-<tg-emoji emoji-id="{PING["telegram"]}">📡</tg-emoji> <b>ᴛᴇʟᴇɢʀᴀᴍ</b>  : <code>{tg_ping} ms</code>
-
-<tg-emoji emoji-id="{PING["uptime"]}">⏱</tg-emoji> <b>ᴜᴘᴛɪᴍᴇ</b>    : <code>{uptime}</code>
-<tg-emoji emoji-id="{PING["cpu"]}">📈</tg-emoji> <b>ᴄᴘᴜ</b>       : <code>{cpu}%</code>
-<tg-emoji emoji-id="{PING["ram"]}">📊</tg-emoji> <b>ʀᴀᴍ</b>       : <code>{ram}%</code>
-<tg-emoji emoji-id="{PING["disk"]}">📦</tg-emoji> <b>ᴅɪsᴋ</b>      : <code>{disk}%</code>
-
-<tg-emoji emoji-id="{PING["status"]}">🟢</tg-emoji> <b>ᴏɴʟɪɴᴇ</b> • <code>ᴏᴘᴇʀᴀᴛɪᴏɴᴀʟ</code>
-<tg-emoji emoji-id="{PING["rocket"]}">🚀</tg-emoji> <b>ʏᴜᴋɪᴍᴜsɪᴄ</b>
-"""
-
+def build_ping_blocks(ping, telegram_ping, uptime, cpu, ram, disk):
+    return [
+        _paragraph(
+            [
+                types.RichTextBold(text="YukiMusic — Pɪɴɢ Sᴛᴀᴛᴜs")
+            ]
+        ),
+        _heading("Pɪɴɢ"),
+        _bold_paragraph("• Rᴇsᴘᴏɴsᴇ: ", f"{ping:.2f} ms"),
+        _bold_paragraph("• Tᴇʟᴇɢʀᴀᴍ: ", f"{telegram_ping:.2f} ms"),
+        _heading("Sʏsᴛᴇᴍ"),
+        _bold_paragraph("• CPU: ", f"{cpu}%"),
+        _bold_paragraph("• RAM: ", f"{ram}%"),
+        _bold_paragraph("• Dɪsᴋ: ", f"{disk}%"),
+        _heading("Rᴜɴᴛɪᴍᴇ"),
+        _bold_paragraph("• Uᴘᴛɪᴍᴇ: ", _format_uptime(uptime)),
+        _heading("Sᴛᴀᴛᴜs"),
+        _bold_paragraph("• Sᴛᴀᴛᴜs: ", "🟢 Oɴʟɪɴᴇ"),
+        _paragraph("────────────────────────"),
+        types.InputRichBlockButtons(
+            buttons=[
+                types.RichMessageButton(
+                    text="💬 Cʜᴀᴛ",
+                    style=enums.ButtonStyle.SUCCESS,
+                    callback_data="ping_chat",
+                )
+            ],
+            align="center",
+        ),
+    ]
 
 @yuki.on_message(filters.command(["ping", "alive"]) & ~BANNED_USERS)
 @language
 async def ping_com(client, message: Message, _):
-    start = datetime.now()
-
-    response = await message.reply_text(
-        f'<tg-emoji emoji-id="{PING["ping"]}">🏓</tg-emoji> <b>ᴄʜᴇᴄᴋɪɴɢ ᴘɪɴɢ...</b>'
-    )
-
-    pytgping = await Shruti.ping()
+    start = time.perf_counter()
+    telegram_ping = await Shruti.ping()
     UP, CPU, RAM, DISK = await bot_sys_stats()
-
-    resp = (datetime.now() - start).total_seconds() * 1000
-
-    await response.edit_text(
-        ping_text(
-            resp,
-            pytgping,
-            UP,
-            CPU,
-            RAM,
-            DISK,
-        ),
-        reply_markup=supp_markup(_),
+    ping = (time.perf_counter() - start) * 1000
+    blocks = build_ping_blocks(
+        ping,
+        telegram_ping,
+        UP,
+        CPU,
+        RAM,
+        DISK,
+    )
+    rich_message = types.InputRichMessage(blocks=blocks)
+    await client.send_rich_message(
+        message.chat.id,
+        rich_message=rich_message,
     )
