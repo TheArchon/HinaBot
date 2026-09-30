@@ -20,14 +20,14 @@ def _paragraph(text):
 
 def _heading(text):
     return types.InputRichBlockPullQuotation(
-        text=[types.RichTextBold(text=text)]
+        text=types.RichTextBold(text=text)
     )
 
 def _bold_paragraph(label, value):
     return types.InputRichBlockParagraph(
         text=[
             types.RichTextBold(text=label),
-            types.RichTextPlain(text=value),
+            value,
         ]
     )
 
@@ -38,7 +38,11 @@ def build_runtime_stats_blocks(system, process, cpu_percent, process_cpu, chats,
     app_mem = process.memory_info().rss
     cores = psutil.cpu_count(logical=True) or 1
     blocks = [
-        _paragraph([types.RichTextBold(text="YukiMusic — Rᴜɴᴛɪᴍᴇ Sᴛᴀᴛᴜs")]),
+        _paragraph(
+            [
+                types.RichTextBold(text="YukiMusic — Rᴜɴᴛɪᴍᴇ Sᴛᴀᴛᴜs")
+            ]
+        ),
         _heading("Sʏsᴛᴇᴍ"),
         _bold_paragraph("• CPU Usᴀɢᴇ: ", f"{cpu_percent:.2f}% ({cores} cores)"),
         _bold_paragraph("• RAM Usᴀɢᴇ: ", f"{_gib(virtual.used):.2f} GɪB | {_gib(virtual.total):.2f} GɪB"),
