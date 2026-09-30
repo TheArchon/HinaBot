@@ -16,7 +16,7 @@ BOT_TOKEN = getenv("BOT_TOKEN", "")
 # Get from MongoDB Atlas
 MONGO_DB_URI = getenv("MONGO_DB_URI", "")
 
-DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", "60"))
+DURATION_LIMIT_MIN = int(getenv("DURATION_LIMIT", "300"))
 
 LOGGER_ID = int(getenv("LOGGER_ID", "0"))
 OWNER_ID = int(getenv("OWNER_ID", "7948719473"))
