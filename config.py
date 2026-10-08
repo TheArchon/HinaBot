@@ -85,7 +85,7 @@ confirmer = {}
 
 START_IMG_URL = getenv(
     "START_IMG_URL",
-    "https://graph.org/file/9d5bceea4426bd4fc1ac2-bd933c9000e8f8b620.jpg"
+    "https://graph.org/file/89f5a64a7bf14ac7750b0-2bf039ef1fb2234bd3.jpg"
 )
 
 TELEGRAM_AUDIO_URL = "https://te.legra.ph/file/6298d377ad3eb46711644.jpg"
